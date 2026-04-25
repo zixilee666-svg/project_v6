@@ -1,0 +1,70 @@
+{
+  "$schema": "https://edgeone.ai/schemas/pages-config.json",
+  "version": 2,
+  "routes": [
+    {
+      "path": "/api/auth/*",
+      "runtime": "edge",
+      "target": "./edge-functions/api/auth"
+    },
+    {
+      "path": "/api/papers/*",
+      "runtime": "edge",
+      "target": "./edge-functions/api/papers"
+    },
+    {
+      "path": "/api/projects/*",
+      "runtime": "edge",
+      "target": "./edge-functions/api/projects"
+    },
+    {
+      "path": "/api/libraries/*",
+      "runtime": "edge",
+      "target": "./edge-functions/api/libraries"
+    },
+    {
+      "path": "/api/settings/*",
+      "runtime": "edge",
+      "target": "./edge-functions/api/settings"
+    },
+    {
+      "path": "/api/stats/*",
+      "runtime": "edge",
+      "target": "./edge-functions/api/stats"
+    },
+    {
+      "path": "/api/search/*",
+      "runtime": "edge",
+      "target": "./edge-functions/api/search"
+    },
+    {
+      "path": "/api/ai/*",
+      "runtime": "node",
+      "target": "./cloud-functions/api"
+    },
+    {
+      "path": "/*",
+      "target": "./dist"
+    }
+  ],
+  "buildCommand": "npm run build",
+  "outputDirectory": "./dist",
+  "env": {
+    "JWT_SECRET": {
+      "description": "JWT signing secret (min 32 characters)",
+      "value": "academic-hub-v4-jwt-secret-key-2026"
+    },
+    "JWT_EXPIRES_IN": {
+      "description": "JWT token expiration time",
+      "value": "7d"
+    },
+    "ADMIN_USERNAME": {
+      "description": "Admin login username",
+      "value": "admin"
+    },
+    "ADMIN_PASSWORD": {
+      "description": "Admin login password",
+      "value": "123456"
+    }
+  }
+}

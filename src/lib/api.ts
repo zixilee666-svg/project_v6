@@ -1,0 +1,1056 @@
+// ========================================
+// API 客户端 — 前后端分离架构
+// VITE_MOCK_MODE=true（默认）→ 纯前端 Mock，零网络请求
+// VITE_MOCK_MODE=false → 调用真实后端 API
+// 无需运行时探测，构建时即确定模式
+// ========================================
+
+import type { Paper, User, Project, Note, Highlight, ReadingRecord, ReadingStats, AIConversation, UserSettings, Library, Material } from '@/types';
+
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
+// 构建时确定：是否使用 Mock（默认 true）
+// 当部署到 EdgeOne 等纯前端环境时，VITE_MOCK_MODE 未设置 → 默认 Mock
+// 当本地开发连接真实后端时，设置 VITE_MOCK_MODE=false
+const IS_MOCK: boolean = import.meta.env.VITE_MOCK_MODE !== 'false';
+
+if (IS_MOCK) {
+  console.log('[Academic Hub] ✅ Mock 模式已启用（无需后端）');
+} else {
+  console.log('[Academic Hub] 🌐 真实 API 模式，后端地址:', API_BASE);
+}
+
+// ---- Mock 数据 ----
+const mockUser: User = {
+  id: 'mock-user-001',
+  username: 'master',
+  email: 'master@academic-hub.dev',
+  institution: 'Joan 学术研究所',
+  role: 'admin',
+  createdAt: new Date().toISOString(),
+  avatar: null,
+};
+
+const mockToken = 'mock-jwt-token-' + Date.now();
+
+const mockPapers: Paper[] = [
+  {
+    id: 'p-001',
+    title: 'Semi-Supervised Classification with Graph Convolutional Networks',
+    authors: ['T.N. Kipf', 'M. Welling'],
+    year: 2017,
+    venue: 'ICLR 2017',
+    venueType: 'conference',
+    abstract: 'We present a scalable approach for semi-supervised learning on graph-structured data that is based on an efficient variant of convolutional neural networks operating directly on graphs.',
+    keywords: ['GCN', 'semi-supervised', 'graph neural network'],
+    doi: '10.5555/3295222.3295313',
+    tags: ['GNN', '经典论文'],
+    isFavorited: true,
+    isRead: true,
+    readingStatus: 'completed',
+    notes: [],
+    highlights: [],
+    addedAt: '2026-04-20T10:00:00Z',
+    url: 'https://arxiv.org/abs/1609.02907',
+  },
+  {
+    id: 'p-002',
+    title: 'Graph Attention Networks',
+    authors: ['P. Veličković', 'G. Cucurull', 'A. Casanova', 'A. Romero', 'P. Liò', 'Y. Bengio'],
+    year: 2018,
+    venue: 'ICLR 2018',
+    venueType: 'conference',
+    abstract: 'We propose Graph Attention Networks (GATs), novel neural network architectures that operate on graph-structured data, leveraging masked self-attentional layers.',
+    keywords: ['GAT', 'attention mechanism', 'graph neural network'],
+    doi: '10.5555/3327758.3327825',
+    tags: ['GNN', '注意力机制'],
+    isFavorited: true,
+    isRead: false,
+    readingStatus: 'reading',
+    notes: [],
+    highlights: [],
+    addedAt: '2026-04-21T08:00:00Z',
+    url: 'https://arxiv.org/abs/1710.10903',
+  },
+  {
+    id: 'p-003',
+    title: 'Heterogeneous Graph Attention Network',
+    authors: ['X. Wang', 'H. Ji', 'C. Shi', 'B. Wang', 'Y. Ye', 'P. Cui', 'P.S. Yu'],
+    year: 2019,
+    venue: 'WWW 2019',
+    venueType: 'conference',
+    abstract: 'In real world, different types of objects and rich interactions between them form heterogeneous information networks. We propose the Heterogeneous Graph Attention Network (HAN).',
+    keywords: ['HAN', 'heterogeneous graph', 'attention', 'meta-path'],
+    doi: '10.1145/3308558.3313418',
+    tags: ['HGNN', '元路径'],
+    isFavorited: false,
+    isRead: false,
+    readingStatus: 'unread',
+    notes: [],
+    highlights: [],
+    addedAt: '2026-04-22T12:00:00Z',
+    url: 'https://arxiv.org/abs/1903.07293',
+  },
+  {
+    id: 'p-004',
+    title: 'CARE-GNN: Collaborative Learning for Financial Fraud Detection',
+    authors: ['Y. Liu', 'Y. Li', 'X. Wu', 'F. Ye', 'M. Ester', 'J. Liang'],
+    year: 2020,
+    venue: 'CIKM 2020',
+    venueType: 'conference',
+    abstract: 'We propose a novel graph-based approach, CARE-GNN, which effectively leverages the topological and relational information to improve financial fraud detection.',
+    keywords: ['fraud detection', 'GNN', 'reinforcement learning', 'relation-aware'],
+    tags: ['金融欺诈', '图方法'],
+    isFavorited: true,
+    isRead: true,
+    readingStatus: 'completed',
+    notes: [],
+    highlights: [],
+    addedAt: '2026-04-23T09:00:00Z',
+  },
+  {
+    id: 'p-005',
+    title: 'Heterogeneous Graph Transformer',
+    authors: ['Y. Hu', 'Z. Li', 'D. Wang', 'S. Liang', 'Y. Chang', 'Q.V.H. Nguyen'],
+    year: 2020,
+    venue: 'WWW 2020',
+    venueType: 'conference',
+    abstract: 'We propose the Heterogeneous Graph Transformer (HGT) for modeling heterogeneous web data. HGT introduces a novel heterogeneous mutual attention mechanism.',
+    keywords: ['HGT', 'heterogeneous graph', 'transformer', 'attention'],
+    doi: '10.1145/3366423.3380287',
+    tags: ['HGNN', 'Transformer'],
+    isFavorited: false,
+    isRead: false,
+    readingStatus: 'reading',
+    notes: [],
+    highlights: [],
+    addedAt: '2026-04-24T10:00:00Z',
+    url: 'https://arxiv.org/abs/2003.01345',
+  },
+  {
+    id: 'p-006',
+    title: 'Inductive Representation Learning on Large Graphs',
+    authors: ['W.L. Hamilton', 'R. Ying', 'J. Leskovec'],
+    year: 2017,
+    venue: 'NeurIPS 2017',
+    venueType: 'conference',
+    abstract: 'We present GraphSAGE, a general inductive learning framework that leverages node feature information to efficiently generate node embeddings for previously unseen data.',
+    keywords: ['GraphSAGE', 'inductive learning', 'sampling', 'node embedding'],
+    tags: ['GNN', '经典论文'],
+    isFavorited: false,
+    isRead: true,
+    readingStatus: 'completed',
+    notes: [],
+    highlights: [],
+    addedAt: '2026-04-24T11:00:00Z',
+    url: 'https://arxiv.org/abs/1706.02216',
+  },
+  {
+    id: 'p-007',
+    title: 'Relational Graph Convolutional Networks',
+    authors: ['M. Schlichtkrull', 'T.N. Kipf', 'R. Bloem', 'P. van den Berg', 'I. Titov', 'M. Welling'],
+    year: 2018,
+    venue: 'Relational Representation Learning, NIPS 2018 Workshop',
+    venueType: 'conference',
+    abstract: 'We propose relational graph convolutional networks (R-GCNs) which apply specialized aggregation functions to nodes belonging to different edge types.',
+    keywords: ['RGCN', 'relational graph', 'knowledge graph'],
+    tags: ['HGNN', '知识图谱'],
+    isFavorited: false,
+    isRead: false,
+    readingStatus: 'unread',
+    notes: [],
+    highlights: [],
+    addedAt: '2026-04-25T08:00:00Z',
+    url: 'https://arxiv.org/abs/1703.06103',
+  },
+  {
+    id: 'p-008',
+    title: 'Dual Graph Convolutional Networks for Fraud Detection',
+    authors: ['J. Dou', 'Y. Liu', 'F. Liu', 'X. Yu', 'J. Li'],
+    year: 2020,
+    venue: 'CIKM 2020',
+    venueType: 'conference',
+    abstract: 'We propose a dual Graph Convolutional Network (Dual-GCN) framework for fraud detection, which consists of a relation-aware GCN and an intuitionistic GCN.',
+    keywords: ['fraud detection', 'dual GCN', 'heterogeneous graph'],
+    tags: ['金融欺诈', '图方法'],
+    isFavorited: false,
+    isRead: false,
+    readingStatus: 'unread',
+    notes: [],
+    highlights: [],
+    addedAt: '2026-04-25T09:00:00Z',
+  },
+];
+
+const mockProjects: Project[] = [
+  {
+    id: 'proj-001',
+    name: 'HGNN 金融欺诈检测综述',
+    description: '基于异质图神经网络的金融欺诈检测方法综述论文',
+    status: 'active',
+    goalCount: 12,
+    completedGoals: 7,
+    startDate: '2026-03-01',
+    targetDate: '2026-06-30',
+    tags: ['综述', 'HGNN', '金融欺诈'],
+    paperIds: ['p-001', 'p-002', 'p-003', 'p-004', 'p-005'],
+    createdAt: '2026-03-01T00:00:00Z',
+  },
+  {
+    id: 'proj-002',
+    name: '多尺度元路径融合实验',
+    description: '基于多尺度元路径融合的异质图神经网络在电商欺诈检测中的应用实验',
+    status: 'active',
+    goalCount: 8,
+    completedGoals: 2,
+    startDate: '2026-04-15',
+    targetDate: '2026-07-31',
+    tags: ['实验', '元路径', '电商欺诈'],
+    paperIds: ['p-003', 'p-004'],
+    createdAt: '2026-04-15T00:00:00Z',
+  },
+  {
+    id: 'proj-003',
+    name: 'GNN 核心理论梳理',
+    description: '系统梳理 GNN 核心理论：从谱图理论到消息传递范式',
+    status: 'completed',
+    goalCount: 10,
+    completedGoals: 10,
+    startDate: '2026-02-01',
+    targetDate: '2026-04-01',
+    tags: ['学习', 'GNN', '理论'],
+    paperIds: ['p-001', 'p-002', 'p-006'],
+    createdAt: '2026-02-01T00:00:00Z',
+  },
+];
+
+// ---- Mock Libraries ----
+// paper IDs hardcoded for static initialization order
+const mockLibraries: Library[] = [
+  {
+    id: 'lib-all',
+    name: '全部文献',
+    color: '#3d5a80',
+    icon: 'Library',
+    paperIds: ['p-001','p-002','p-003','p-004','p-005','p-006','p-007','p-008'],
+    createdAt: '2026-03-01T00:00:00Z',
+    isDefault: true,
+  },
+  {
+    id: 'lib-gnn',
+    name: 'GNN 核心论文',
+    description: '图神经网络经典论文',
+    color: '#C9A96E',
+    icon: 'Network',
+    paperIds: ['p-001', 'p-002', 'p-006', 'p-007'],
+    createdAt: '2026-03-05T00:00:00Z',
+  },
+  {
+    id: 'lib-hgnn',
+    name: '异质图神经网络',
+    description: 'HGNN 相关研究论文',
+    color: '#2D8A4E',
+    icon: 'GitBranch',
+    paperIds: ['p-003', 'p-005'],
+    createdAt: '2026-03-10T00:00:00Z',
+  },
+  {
+    id: 'lib-fraud',
+    name: '金融欺诈检测',
+    description: '图方法在金融欺诈检测中的应用',
+    color: '#B91C1C',
+    icon: 'ShieldAlert',
+    paperIds: ['p-004', 'p-008'],
+    createdAt: '2026-03-15T00:00:00Z',
+  },
+];
+
+// ---- Mock Materials ----
+const mockMaterials: Material[] = [
+  {
+    id: 'mat-001',
+    title: '深度学习课件 - 第3章：卷积神经网络',
+    type: 'markdown',
+    category: 'courseware',
+    description: 'CNN 基础与进阶概念讲解',
+    content: '# 卷积神经网络\n\n卷积神经网络（CNN）是深度学习中处理图像数据的重要模型...',
+    tags: ['深度学习', 'CNN', '课件'],
+    isFavorite: true,
+    createdAt: '2026-04-10T10:00:00Z',
+  },
+  {
+    id: 'mat-002',
+    title: '图神经网络前沿综述报告',
+    type: 'pdf',
+    category: 'report',
+    description: '2025年GNN领域最新进展汇总',
+    fileName: 'gnn-survey-2025.pdf',
+    fileSize: 2458624,
+    tags: ['GNN', '综述', '报告'],
+    isFavorite: false,
+    createdAt: '2026-04-15T14:30:00Z',
+  },
+  {
+    id: 'mat-003',
+    title: '机器学习数学基础笔记',
+    type: 'note',
+    category: 'notes',
+    description: '线性代数、概率论、凸优化的核心公式与证明',
+    content: '## 矩阵分解\n\n奇异值分解（SVD）是线性代数中最重要的分解之一...',
+    tags: ['数学', '笔记', '机器学习'],
+    isFavorite: true,
+    createdAt: '2026-04-18T09:00:00Z',
+  },
+  {
+    id: 'mat-004',
+    title: '异质图表示学习综述',
+    type: 'link',
+    category: 'reference',
+    description: 'Heterogeneous Graph Representation Learning: A Survey',
+    content: 'https://arxiv.org/abs/2202.11066',
+    tags: ['HGNN', '表示学习', '综述'],
+    isFavorite: false,
+    createdAt: '2026-04-20T11:00:00Z',
+  },
+];
+
+const mockReadingStats: ReadingStats = {
+  totalPapers: 8,
+  weeklyRead: 3,
+  toRead: 5,
+  points: 280,
+  streakDays: 7,
+  weeklyHeatmap: [3, 2, 4, 1, 3, 2, 3],
+  readPapers: 3,
+  readingPapers: 2,
+  unreadPapers: 3,
+  weeklyGoal: 5,
+  weeklyCompleted: 3,
+  totalReadingTime: 1250,
+};
+
+function mockDelay(ms = 300): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ---- Mock 请求处理器 ----
+function handleMockRequest(path: string, method: string, body?: any): any {
+  // Auth
+  if (path === '/auth/login' && method === 'POST') {
+    const { username, password } = body || {};
+    if (!username || !password) throw new Error('请输入用户名和密码');
+    // 固定管理员
+    if (username === 'admin' && password === '123456') {
+      const adminUser = { ...mockUser, username: 'admin', id: 'admin-fixed', role: 'admin' as const, displayName: 'Administrator' };
+      return { success: true, data: { token: mockToken, user: adminUser } };
+    }
+    const user = { ...mockUser, username };
+    return { success: true, data: { token: mockToken, user } };
+  }
+  if (path === '/auth/register' && method === 'POST') {
+    const { username, password } = body || {};
+    if (!username || !password) throw new Error('请填写必要信息');
+    const newUser = { ...mockUser, id: 'mock-user-' + Date.now(), username, institution: body?.institution };
+    return { success: true, data: { token: mockToken, user: newUser } };
+  }
+  if (path === '/auth/me' && method === 'GET') {
+    const stored = localStorage.getItem('joan_academic_user');
+    return { success: true, data: stored ? JSON.parse(stored) : mockUser };
+  }
+  if (path === '/auth/logout' && method === 'POST') {
+    return { success: true };
+  }
+
+  // Papers
+  if (path.startsWith('/papers') && !path.includes('/notes') && !path.includes('/highlights') && !path.includes('/favorite') && !path.includes('/batch-import') && !path.includes('/export') && method === 'GET') {
+    const paramStr = path.includes('?') ? path.split('?')[1] : '';
+    const params = new URLSearchParams(paramStr);
+    let results = [...mockPapers];
+    if (params.get('search')) {
+      const q = params.get('search')!.toLowerCase();
+      results = results.filter(p =>
+        p.title.toLowerCase().includes(q) ||
+        p.authors.some(a => a.toLowerCase().includes(q)) ||
+        p.keywords.some(k => k.toLowerCase().includes(q))
+      );
+    }
+    if (params.get('tag')) {
+      const tag = params.get('tag')!.toLowerCase();
+      results = results.filter(p => p.tags.some(t => t.toLowerCase().includes(tag)));
+    }
+    return { success: true, data: results, total: results.length };
+  }
+
+  if (path.match(/^\/papers\/[^/]+$/) && method === 'GET') {
+    const id = path.split('/')[2];
+    const paper = mockPapers.find(p => p.id === id);
+    if (!paper) throw new Error('Paper not found');
+    return { success: true, data: paper };
+  }
+
+  if (path === '/papers' && method === 'POST') {
+    const newPaper: Paper = {
+      id: 'p-' + Date.now(),
+      title: body?.title || 'Untitled',
+      authors: body?.authors || [],
+      year: body?.year || 2026,
+      venue: body?.venue || '',
+      venueType: body?.venueType || 'preprint',
+      abstract: body?.abstract || '',
+      keywords: body?.keywords || [],
+      tags: body?.tags || [],
+      isFavorited: false,
+      isRead: false,
+      readingStatus: 'unread',
+      notes: [],
+      highlights: [],
+      addedAt: new Date().toISOString(),
+    };
+    mockPapers.push(newPaper);
+    return { success: true, data: newPaper };
+  }
+
+  if (path.match(/^\/papers\/[^/]+$/) && (method === 'PUT' || method === 'PATCH')) {
+    const id = path.split('/')[2];
+    const paper = mockPapers.find(p => p.id === id);
+    if (!paper) throw new Error('Paper not found');
+    Object.assign(paper, body);
+    return { success: true, data: paper };
+  }
+
+  if (path.match(/^\/papers\/[^/]+$/) && method === 'DELETE') {
+    const id = path.split('/')[2];
+    const idx = mockPapers.findIndex(p => p.id === id);
+    if (idx >= 0) mockPapers.splice(idx, 1);
+    return { success: true };
+  }
+
+  if (path.match(/^\/papers\/[^/]+\/favorite$/) && method === 'POST') {
+    const id = path.split('/')[2];
+    const paper = mockPapers.find(p => p.id === id);
+    if (paper) paper.isFavorited = !paper.isFavorited;
+    return { success: true, data: { isFavorited: paper?.isFavorited ?? false } };
+  }
+
+  // Projects
+  if (path === '/projects' && method === 'GET') {
+    return { success: true, data: mockProjects };
+  }
+  if (path.match(/^\/projects\/[^/]+$/) && method === 'GET') {
+    const id = path.split('/')[2];
+    const proj = mockProjects.find(p => p.id === id);
+    if (!proj) throw new Error('Project not found');
+    return { success: true, data: proj };
+  }
+  if (path === '/projects' && method === 'POST') {
+    const newProj: Project = {
+      id: 'proj-' + Date.now(),
+      name: body?.name || 'New Project',
+      description: body?.description || '',
+      status: 'active',
+      goalCount: 0,
+      completedGoals: 0,
+      startDate: body?.startDate || new Date().toISOString().slice(0, 10),
+      targetDate: body?.targetDate || '',
+      tags: body?.tags || [],
+      paperIds: body?.paperIds || [],
+      createdAt: new Date().toISOString(),
+    };
+    mockProjects.push(newProj);
+    return { success: true, data: newProj };
+  }
+  if (path.match(/^\/projects\/[^/]+$/) && method === 'PUT') {
+    const id = path.split('/')[2];
+    const proj = mockProjects.find(p => p.id === id);
+    if (!proj) throw new Error('Project not found');
+    Object.assign(proj, body);
+    return { success: true, data: proj };
+  }
+  if (path.match(/^\/projects\/[^/]+$/) && method === 'DELETE') {
+    const id = path.split('/')[2];
+    const idx = mockProjects.findIndex(p => p.id === id);
+    if (idx >= 0) mockProjects.splice(idx, 1);
+    return { success: true };
+  }
+
+  // Notes
+  if (path.match(/^\/papers\/[^/]+\/notes$/) && method === 'GET') {
+    const paperId = path.split('/')[2];
+    const paper = mockPapers.find(p => p.id === paperId);
+    return { success: true, data: paper?.notes || [] };
+  }
+  if (path.match(/^\/papers\/[^/]+\/notes$/) && method === 'POST') {
+    const paperId = path.split('/')[2];
+    const paper = mockPapers.find(p => p.id === paperId);
+    const newNote: Note = {
+      id: 'note-' + Date.now(),
+      paperId,
+      content: body?.content || '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    if (paper) { if (!paper.notes) paper.notes = []; paper.notes.push(newNote); }
+    return { success: true, data: newNote };
+  }
+
+  // Highlights
+  if (path.match(/^\/papers\/[^/]+\/highlights$/) && method === 'GET') {
+    const paperId = path.split('/')[2];
+    const paper = mockPapers.find(p => p.id === paperId);
+    return { success: true, data: paper?.highlights || [] };
+  }
+  if (path.match(/^\/papers\/[^/]+\/highlights$/) && method === 'POST') {
+    const paperId = path.split('/')[2];
+    const paper = mockPapers.find(p => p.id === paperId);
+    const newHl: Highlight = {
+      id: 'hl-' + Date.now(),
+      paperId,
+      text: body?.text || '',
+      color: body?.color || '#FFD700',
+      note: body?.note,
+      page: body?.page,
+      createdAt: new Date().toISOString(),
+    };
+    if (paper) { if (!paper.highlights) paper.highlights = []; paper.highlights.push(newHl); }
+    return { success: true, data: newHl };
+  }
+
+  // Reading Stats
+  if (path === '/stats/reading' && method === 'GET') {
+    return { success: true, data: mockReadingStats };
+  }
+
+  // Reading Records
+  if (path === '/reading-records' && method === 'POST') {
+    return { success: true };
+  }
+
+  // Search (Mock: return empty)
+  if (path.includes('/search/arxiv') && method === 'GET') {
+    return { success: true, data: [] };
+  }
+  if (path.includes('/search/semantic-scholar') && method === 'GET') {
+    return { success: true, data: [] };
+  }
+  if (path === '/search/import' && method === 'POST') {
+    return { success: true, data: body };
+  }
+
+  // AI Chat (Mock: echo back)
+  if (path === '/ai/chat' && method === 'POST') {
+    return { success: true, data: { reply: 'Mock AI 响应：这是一个测试回复。', conversationId: 'conv-mock-001' } };
+  }
+  if (path === '/ai/conversations' && method === 'GET') {
+    return { success: true, data: [] };
+  }
+
+  // Settings
+  if (path === '/settings' && method === 'GET') {
+    return {
+      success: true,
+      data: {
+        theme: 'system',
+        citationFormat: 'ieee',
+        language: 'zh-CN',
+        autoSave: true,
+        notifications: {
+          newPapers: true,
+          readingReminders: true,
+          projectUpdates: true,
+          pointsChange: false,
+        },
+      },
+    };
+  }
+  if (path === '/settings' && method === 'PUT') {
+    return { success: true, data: body };
+  }
+
+  // ---- Libraries ----
+  if (path === '/libraries' && method === 'GET') {
+    return { success: true, data: mockLibraries };
+  }
+  if (path.match(/^\/libraries\/[^/]+$/) && method === 'GET') {
+    const id = path.split('/')[2];
+    const lib = mockLibraries.find(l => l.id === id);
+    if (!lib) throw new Error('Library not found');
+    return { success: true, data: lib };
+  }
+  if (path === '/libraries' && method === 'POST') {
+    const newLib: Library = {
+      id: 'lib-' + Date.now(),
+      name: body?.name || '新文献库',
+      description: body?.description || '',
+      color: body?.color || '#3d5a80',
+      icon: body?.icon || 'Folder',
+      paperIds: body?.paperIds || [],
+      createdAt: new Date().toISOString(),
+    };
+    mockLibraries.push(newLib);
+    return { success: true, data: newLib };
+  }
+  if (path.match(/^\/libraries\/[^/]+$/) && method === 'PUT') {
+    const id = path.split('/')[2];
+    const lib = mockLibraries.find(l => l.id === id);
+    if (!lib) throw new Error('Library not found');
+    if (lib.isDefault) throw new Error('默认文献库不可修改');
+    Object.assign(lib, body, { updatedAt: new Date().toISOString() });
+    return { success: true, data: lib };
+  }
+  if (path.match(/^\/libraries\/[^/]+$/) && method === 'DELETE') {
+    const id = path.split('/')[2];
+    const lib = mockLibraries.find(l => l.id === id);
+    if (!lib) throw new Error('Library not found');
+    if (lib.isDefault) throw new Error('默认文献库不可删除');
+    const idx = mockLibraries.findIndex(l => l.id === id);
+    if (idx >= 0) mockLibraries.splice(idx, 1);
+    return { success: true };
+  }
+  if (path.match(/^\/libraries\/[^/]+\/papers$/) && method === 'POST') {
+    const libId = path.split('/')[2];
+    const lib = mockLibraries.find(l => l.id === libId);
+    if (!lib) throw new Error('Library not found');
+    if (body?.paperId && !lib.paperIds.includes(body.paperId)) {
+      lib.paperIds.push(body.paperId);
+    }
+    if (body?.paperIds) {
+      body.paperIds.forEach((pid: string) => {
+        if (!lib.paperIds.includes(pid)) lib.paperIds.push(pid);
+      });
+    }
+    return { success: true, data: lib };
+  }
+  if (path.match(/^\/libraries\/[^/]+\/papers\/[^/]+$/) && method === 'DELETE') {
+    const parts = path.split('/');
+    const libId = parts[2];
+    const paperId = parts[4];
+    const lib = mockLibraries.find(l => l.id === libId);
+    if (!lib) throw new Error('Library not found');
+    lib.paperIds = lib.paperIds.filter(id => id !== paperId);
+    return { success: true };
+  }
+
+  // ---- Materials ----
+  if (path === '/materials' && method === 'GET') {
+    const paramStr = path.includes('?') ? path.split('?')[1] : '';
+    const params = new URLSearchParams(paramStr);
+    let results = [...mockMaterials];
+    if (params.get('category')) {
+      results = results.filter(m => m.category === params.get('category'));
+    }
+    if (params.get('type')) {
+      results = results.filter(m => m.type === params.get('type'));
+    }
+    if (params.get('tag')) {
+      const tag = params.get('tag')!;
+      results = results.filter(m => m.tags.includes(tag));
+    }
+    return { success: true, data: results, total: results.length };
+  }
+  if (path.match(/^\/materials\/[^/]+$/) && method === 'GET') {
+    const id = path.split('/')[2];
+    const mat = mockMaterials.find(m => m.id === id);
+    if (!mat) throw new Error('Material not found');
+    return { success: true, data: mat };
+  }
+  if (path === '/materials' && method === 'POST') {
+    const newMat: Material = {
+      id: 'mat-' + Date.now(),
+      title: body?.title || '新资料',
+      type: body?.type || 'file',
+      category: body?.category || 'other',
+      description: body?.description || '',
+      content: body?.content || '',
+      fileName: body?.fileName,
+      fileSize: body?.fileSize,
+      fileUrl: body?.fileUrl,
+      tags: body?.tags || [],
+      isFavorite: false,
+      createdAt: new Date().toISOString(),
+    };
+    mockMaterials.push(newMat);
+    return { success: true, data: newMat };
+  }
+  if (path.match(/^\/materials\/[^/]+$/) && method === 'PUT') {
+    const id = path.split('/')[2];
+    const mat = mockMaterials.find(m => m.id === id);
+    if (!mat) throw new Error('Material not found');
+    Object.assign(mat, body, { updatedAt: new Date().toISOString() });
+    return { success: true, data: mat };
+  }
+  if (path.match(/^\/materials\/[^/]+$/) && method === 'DELETE') {
+    const id = path.split('/')[2];
+    const idx = mockMaterials.findIndex(m => m.id === id);
+    if (idx >= 0) mockMaterials.splice(idx, 1);
+    return { success: true };
+  }
+  if (path.match(/^\/materials\/[^/]+\/favorite$/) && method === 'POST') {
+    const id = path.split('/')[2];
+    const mat = mockMaterials.find(m => m.id === id);
+    if (mat) mat.isFavorite = !mat.isFavorite;
+    return { success: true, data: { isFavorite: mat?.isFavorite ?? false } };
+  }
+
+  // Fallback
+  console.warn(`[Mock API] 未处理的请求: ${method} ${path}`);
+  return { success: true };
+}
+
+// ---- API 客户端类 ----
+class ApiClient {
+  private baseUrl: string;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+
+  private getToken(): string | null {
+    return localStorage.getItem('joan_auth_token');
+  }
+
+  /** 主请求方法：同步判断 Mock 或真实 API */
+  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+    // 同步判断，无网络探测，零竞态
+    if (IS_MOCK) {
+      return this.mockRequest<T>(path, options);
+    }
+
+    // 真实 API 请求
+    const token = this.getToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string>),
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || `Request failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /** Mock 请求：纯本地处理，无网络 IO */
+  private async mockRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+    await mockDelay(100 + Math.random() * 150);
+    const method = (options.method || 'GET').toUpperCase();
+    let body: any = undefined;
+    if (options.body && typeof options.body === 'string') {
+      try { body = JSON.parse(options.body); } catch { /* ignore */ }
+    }
+    try {
+      return handleMockRequest(path, method, body) as T;
+    } catch (err: any) {
+      throw new Error(err.message || 'Mock request failed');
+    }
+  }
+
+  /** 同步检查当前是否为 Mock 模式 */
+  isMock(): boolean {
+    return IS_MOCK;
+  }
+
+  // ---- Auth ----
+  async login(username: string, password: string) {
+    return this.request<{ success: boolean; data: { token: string; user: User } }>(
+      '/auth/login',
+      { method: 'POST', body: JSON.stringify({ username, password }) }
+    );
+  }
+
+  async register(data: { username: string; password: string; institution?: string }) {
+    return this.request<{ success: boolean; data: { token: string; user: User } }>(
+      '/auth/register',
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  async getMe() {
+    return this.request<{ success: boolean; data: User }>('/auth/me');
+  }
+
+  async logout() {
+    return this.request('/auth/logout', { method: 'POST' });
+  }
+
+  // ---- Papers ----
+  async getPapers(params?: { search?: string; tag?: string; page?: number; pageSize?: number }) {
+    const query = new URLSearchParams();
+    if (params?.search) query.set('search', params.search);
+    if (params?.tag) query.set('tag', params.tag);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.pageSize) query.set('pageSize', String(params.pageSize));
+    return this.request<{ success: boolean; data: Paper[]; total: number }>(
+      `/papers?${query.toString()}`
+    );
+  }
+
+  async getPaper(id: string) {
+    return this.request<{ success: boolean; data: Paper }>(`/papers/${id}`);
+  }
+
+  async createPaper(paper: Partial<Paper>) {
+    return this.request<{ success: boolean; data: Paper }>(
+      '/papers',
+      { method: 'POST', body: JSON.stringify(paper) }
+    );
+  }
+
+  async updatePaper(id: string, paper: Partial<Paper>) {
+    return this.request<{ success: boolean; data: Paper }>(
+      `/papers/${id}`,
+      { method: 'PUT', body: JSON.stringify(paper) }
+    );
+  }
+
+  async deletePaper(id: string) {
+    return this.request(`/papers/${id}`, { method: 'DELETE' });
+  }
+
+  async toggleFavorite(id: string) {
+    return this.request<{ success: boolean; data: { isFavorited: boolean } }>(
+      `/papers/${id}/favorite`,
+      { method: 'POST' }
+    );
+  }
+
+  // ---- Libraries ----
+  async getLibraries() {
+    return this.request<{ success: boolean; data: Library[] }>('/libraries');
+  }
+  async getLibrary(id: string) {
+    return this.request<{ success: boolean; data: Library }>(`/libraries/${id}`);
+  }
+  async createLibrary(data: Partial<Library>) {
+    return this.request<{ success: boolean; data: Library }>(
+      '/libraries',
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+  async updateLibrary(id: string, data: Partial<Library>) {
+    return this.request<{ success: boolean; data: Library }>(
+      `/libraries/${id}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    );
+  }
+  async deleteLibrary(id: string) {
+    return this.request(`/libraries/${id}`, { method: 'DELETE' });
+  }
+  async addPaperToLibrary(libraryId: string, paperId: string) {
+    return this.request<{ success: boolean; data: Library }>(
+      `/libraries/${libraryId}/papers`,
+      { method: 'POST', body: JSON.stringify({ paperId }) }
+    );
+  }
+  async removePaperFromLibrary(libraryId: string, paperId: string) {
+    return this.request(
+      `/libraries/${libraryId}/papers/${paperId}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // ---- Materials ----
+  async getMaterials(params?: { category?: string; type?: string; tag?: string }) {
+    const query = new URLSearchParams();
+    if (params?.category) query.set('category', params.category);
+    if (params?.type) query.set('type', params.type);
+    if (params?.tag) query.set('tag', params.tag);
+    return this.request<{ success: boolean; data: Material[]; total: number }>(
+      `/materials?${query.toString()}`
+    );
+  }
+  async getMaterial(id: string) {
+    return this.request<{ success: boolean; data: Material }>(`/materials/${id}`);
+  }
+  async createMaterial(data: Partial<Material>) {
+    return this.request<{ success: boolean; data: Material }>(
+      '/materials',
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+  async updateMaterial(id: string, data: Partial<Material>) {
+    return this.request<{ success: boolean; data: Material }>(
+      `/materials/${id}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    );
+  }
+  async deleteMaterial(id: string) {
+    return this.request(`/materials/${id}`, { method: 'DELETE' });
+  }
+  async toggleMaterialFavorite(id: string) {
+    return this.request<{ success: boolean; data: { isFavorite: boolean } }>(
+      `/materials/${id}/favorite`,
+      { method: 'POST' }
+    );
+  }
+
+  // ---- Projects ----
+  async getProjects() {
+    return this.request<{ success: boolean; data: Project[] }>('/projects');
+  }
+
+  async getProject(id: string) {
+    return this.request<{ success: boolean; data: Project }>(`/projects/${id}`);
+  }
+
+  async createProject(project: Partial<Project>) {
+    return this.request<{ success: boolean; data: Project }>(
+      '/projects',
+      { method: 'POST', body: JSON.stringify(project) }
+    );
+  }
+
+  async updateProject(id: string, project: Partial<Project>) {
+    return this.request<{ success: boolean; data: Project }>(
+      `/projects/${id}`,
+      { method: 'PUT', body: JSON.stringify(project) }
+    );
+  }
+
+  async deleteProject(id: string) {
+    return this.request(`/projects/${id}`, { method: 'DELETE' });
+  }
+
+  // ---- Notes ----
+  async getNotes(paperId: string) {
+    return this.request<{ success: boolean; data: Note[] }>(
+      `/papers/${paperId}/notes`
+    );
+  }
+
+  async addNote(paperId: string, content: string) {
+    return this.request<{ success: boolean; data: Note }>(
+      `/papers/${paperId}/notes`,
+      { method: 'POST', body: JSON.stringify({ content }) }
+    );
+  }
+
+  // ---- Highlights ----
+  async getHighlights(paperId: string) {
+    return this.request<{ success: boolean; data: Highlight[] }>(
+      `/papers/${paperId}/highlights`
+    );
+  }
+
+  async saveHighlight(paperId: string, highlight: Partial<Highlight>) {
+    return this.request<{ success: boolean; data: Highlight }>(
+      `/papers/${paperId}/highlights`,
+      { method: 'POST', body: JSON.stringify(highlight) }
+    );
+  }
+
+  // ---- Reading Records ----
+  async recordReading(paperId: string, action: ReadingRecord['action'], duration?: number) {
+    return this.request('/reading-records', {
+      method: 'POST',
+      body: JSON.stringify({ paperId, action, duration }),
+    });
+  }
+
+  async getReadingStats() {
+    return this.request<{ success: boolean; data: ReadingStats }>('/stats/reading');
+  }
+
+  // ---- Search ----
+  async searchArxiv(query: string, start = 0) {
+    return this.request<{ success: boolean; data: any[] }>(
+      `/search/arxiv?query=${encodeURIComponent(query)}&start=${start}`
+    );
+  }
+
+  async searchSemanticScholar(query: string, offset = 0) {
+    return this.request<{ success: boolean; data: any[] }>(
+      `/search/semantic-scholar?query=${encodeURIComponent(query)}&offset=${offset}`
+    );
+  }
+
+  async importFromSearch(paper: any) {
+    return this.request<{ success: boolean; data: Paper }>(
+      '/search/import',
+      { method: 'POST', body: JSON.stringify(paper) }
+    );
+  }
+
+  // ---- AI ----
+  async aiChat(conversationId: string | null, message: string, context?: string) {
+    if (IS_MOCK) {
+      await mockDelay(500);
+      return new Response(JSON.stringify({
+        success: true,
+        data: { reply: 'Mock AI 响应：这是一个测试回复。', conversationId: 'conv-mock-001' },
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+    return fetch(`${this.baseUrl}/ai/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.getToken() ? { Authorization: `Bearer ${this.getToken()}` } : {}),
+      },
+      body: JSON.stringify({ conversationId, message, context }),
+    });
+  }
+
+  async getConversations() {
+    return this.request<{ success: boolean; data: AIConversation[] }>('/ai/conversations');
+  }
+
+  // ---- Import/Export ----
+  async batchImport(file: File) {
+    if (IS_MOCK) {
+      await mockDelay(500);
+      return new Response(JSON.stringify({ success: true, imported: 0 }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = this.getToken();
+    return fetch(`${this.baseUrl}/papers/batch-import`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+  }
+
+  async exportPapers(format: 'bibtex' | 'csv', paperIds?: string[]) {
+    if (IS_MOCK) {
+      await mockDelay(300);
+      const bibtex = mockPapers.map(p =>
+        `@article{${p.id},\n  title={${p.title}},\n  author={${p.authors.join(' and ')}},\n  year={${p.year}},\n  journal={${p.venue}}\n}`
+      ).join('\n\n');
+      const content = format === 'bibtex' ? bibtex : 'id,title,authors,year,venue\n' + mockPapers.map(p =>
+        `${p.id},"${p.title}","${p.authors.join('; ')}",${p.year},${p.venue}`
+      ).join('\n');
+      return new Response(content, {
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
+    const query = new URLSearchParams({ format });
+    if (paperIds) query.set('ids', paperIds.join(','));
+    return fetch(`${this.baseUrl}/papers/export?${query.toString()}`, {
+      headers: this.getToken() ? { Authorization: `Bearer ${this.getToken()}` } : {},
+    });
+  }
+
+  // ---- Settings ----
+  async getSettings() {
+    return this.request<{ success: boolean; data: UserSettings }>('/settings');
+  }
+
+  async updateSettings(settings: Partial<UserSettings>) {
+    return this.request<{ success: boolean; data: UserSettings }>(
+      '/settings',
+      { method: 'PUT', body: JSON.stringify(settings) }
+    );
+  }
+}
+
+export const api = new ApiClient(API_BASE);

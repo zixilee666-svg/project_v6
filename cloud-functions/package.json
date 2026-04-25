@@ -1,0 +1,9 @@
+{
+  "name": "academic-hub-cloud-functions",
+  "version": "1.0.0",
+  "description": "Cloud Functions for Academic Hub AI Chat",
+  "main": "api/ai.js",
+  "engines": {
+    "node": ">=18"
+  }
+}
