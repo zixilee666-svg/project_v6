@@ -262,10 +262,7 @@ function SettingsContent() {
                   {themeOptions.map((opt) => (
                     <button
                       key={opt.value}
-                      onClick={() => {
-                        setMode(opt.value);
-                        settings.setTheme(opt.value);
-                      }}
+                      onClick={() => setMode(opt.value)}
                       className={cn(
                         'flex flex-col items-center gap-3 rounded-lg border-2 p-5 transition-all',
                         mode === opt.value

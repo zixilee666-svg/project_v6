@@ -30,3 +30,7 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.temp
+
+# Playwright
+test-results/
+playwright-report/

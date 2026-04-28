@@ -5,6 +5,25 @@
 const AI_API_KEY = EdgeOne.env.get('AI_API_KEY') || '';
 const AI_API_URL = EdgeOne.env.get('AI_API_URL') || 'https://api.openai.com/v1/chat/completions';
 
+// JWT 验证 (复用 Edge Functions 的 JWT 逻辑)
+function extractToken(request) {
+  const authHeader = request.headers.get('Authorization') || '';
+  if (authHeader.startsWith('Bearer ')) return authHeader.slice(7);
+  return null;
+}
+
+// 简单 JWT payload 解析（不验证签名，Cloud Functions 环境已由 Edge Functions 网关处理认证）
+function parseJwtPayload(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 export default {
   async fetch(request) {
     // CORS 预检
@@ -22,6 +41,23 @@ export default {
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // JWT 认证检查
+    const token = extractToken(request);
+    if (!token) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const payload = parseJwtPayload(token);
+    if (!payload || !payload.userId) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }

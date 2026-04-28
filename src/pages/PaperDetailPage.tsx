@@ -1,7 +1,7 @@
 // ========================================
 // PaperDetailPage — 文献详情
 // ========================================
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Star, ExternalLink, Quote, BookmarkPlus,
@@ -125,7 +125,7 @@ export default function PaperDetailPage() {
     }
   }, [id]);
 
-  useState(() => { loadPaper(); });
+  useEffect(() => { loadPaper(); }, [loadPaper]);
 
   // Toggle favorite
   const toggleFav = async () => {
@@ -503,7 +503,7 @@ export default function PaperDetailPage() {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {relatedPapers.map((rp) => (
-                  <Link key={rp.id} to={`/paper/${rp.id}`}>
+                  <Link key={rp.id} to={`/dashboard/paper/${rp.id}`}>
                     <Card className="h-full transition-all hover:shadow-card-hover cursor-pointer">
                       <CardContent className="pt-4 pb-3">
                         <h4 className="line-clamp-2 text-sm font-semibold hover:text-primary transition-colors">

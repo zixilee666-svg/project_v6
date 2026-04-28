@@ -2,7 +2,7 @@
 // MyLibraryPage — 文献库管理页面
 // 支持：增/删/改名文献库、论文分配到库、拖拽排序
 // ========================================
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Search, Plus, FolderOpen, Folder, Edit2, Trash2,
@@ -23,7 +23,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import AnimatedPage from '@/components/shared/AnimatedPage';
 import EmptyState from '@/components/shared/EmptyState';
 import { api } from '@/lib/api';
-import { seedPapers } from '@/data/papers';
 import type { Library, Paper } from '@/types';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -41,6 +40,7 @@ const LIBRARY_ICONS = [
 
 export default function MyLibraryPage() {
   const [libraries, setLibraries] = useState<Library[]>([]);
+  const [allPapers, setAllPapers] = useState<Paper[]>([]);
   const [selectedLibraryId, setSelectedLibraryId] = useState<string>('lib-all');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -63,22 +63,28 @@ export default function MyLibraryPage() {
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ library: Library; x: number; y: number } | null>(null);
 
-  // Load libraries
+  // Load libraries and papers
   const loadLibraries = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.getLibraries();
-      if (res.success && res.data) {
-        setLibraries(res.data);
-        if (!selectedLibraryId || !res.data.find(l => l.id === selectedLibraryId)) {
-          setSelectedLibraryId(res.data[0]?.id || 'lib-all');
+      const [libRes, paperRes] = await Promise.all([
+        api.getLibraries(),
+        api.getPapers({ pageSize: 200 }),
+      ]);
+      if (paperRes.success && paperRes.data) {
+        setAllPapers(paperRes.data);
+      }
+      if (libRes.success && libRes.data) {
+        setLibraries(libRes.data);
+        if (!selectedLibraryId || !libRes.data.find(l => l.id === selectedLibraryId)) {
+          setSelectedLibraryId(libRes.data[0]?.id || 'lib-all');
         }
       }
     } catch {
-      // Fallback: use seed data
+      // Fallback: empty state
       setLibraries([{
         id: 'lib-all', name: '全部文献', color: '#3d5a80',
-        icon: 'Library', paperIds: seedPapers.map(p => p.id),
+        icon: 'Library', paperIds: [],
         createdAt: new Date().toISOString(), isDefault: true,
       }]);
     } finally {
@@ -86,7 +92,7 @@ export default function MyLibraryPage() {
     }
   }, [selectedLibraryId]);
 
-  useState(() => { loadLibraries(); });
+  useEffect(() => { loadLibraries(); }, [loadLibraries]);
 
   // Selected library
   const selectedLibrary = useMemo(
@@ -98,10 +104,10 @@ export default function MyLibraryPage() {
   const libraryPapers = useMemo(() => {
     const lib = selectedLibrary;
     if (!lib) return [];
-    if (lib.id === 'lib-all') return seedPapers;
+    if (lib.id === 'lib-all') return allPapers;
     const libPaperIds = new Set(lib.paperIds);
-    return seedPapers.filter(p => libPaperIds.has(p.id));
-  }, [selectedLibrary]);
+    return allPapers.filter(p => libPaperIds.has(p.id));
+  }, [selectedLibrary, allPapers]);
 
   // Filter papers by search
   const filteredPapers = useMemo(() => {
@@ -271,7 +277,7 @@ export default function MyLibraryPage() {
                       'text-xs px-1.5 py-0.5 rounded-full shrink-0',
                       isActive ? 'bg-white/20 text-white' : 'bg-muted text-muted-foreground'
                     )}>
-                      {lib.id === 'lib-all' ? seedPapers.length : lib.paperIds.length}
+                      {lib.id === 'lib-all' ? allPapers.length : lib.paperIds.length}
                     </span>
                     {/* Hover actions */}
                     {!lib.isDefault && (
@@ -310,7 +316,7 @@ export default function MyLibraryPage() {
             >
               {libraries.map(lib => (
                 <option key={lib.id} value={lib.id}>
-                  {lib.name} ({lib.id === 'lib-all' ? seedPapers.length : lib.paperIds.length})
+                  {lib.name} ({lib.id === 'lib-all' ? allPapers.length : lib.paperIds.length})
                 </option>
               ))}
             </select>

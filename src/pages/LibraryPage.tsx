@@ -1,7 +1,8 @@
 // ========================================
 // LibraryPage — 文献库
+// 已迁移：从 seedPapers 改为 api.getPapers() 加载
 // ========================================
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Search, Filter, Grid3X3, List, Star, ExternalLink,
@@ -15,15 +16,17 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import AnimatedPage from '@/components/shared/AnimatedPage';
 import EmptyState from '@/components/shared/EmptyState';
-import { seedPapers } from '@/data/papers';
+import { api } from '@/lib/api';
 import type { Paper } from '@/types';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 
 type ViewMode = 'grid' | 'list';
 type SortKey = 'addedDate' | 'year' | 'citationCount' | 'title';
 type SortDir = 'asc' | 'desc';
 
 export default function LibraryPage() {
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -32,15 +35,36 @@ export default function LibraryPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
 
-  // All unique tags
+  // Load papers from API on mount
+  useEffect(() => {
+    let cancelled = false;
+    const loadPapers = async () => {
+      try {
+        const res = await api.getPapers({ pageSize: 200 });
+        if (!cancelled) {
+          if (res.success && res.data) {
+            setPapers(res.data);
+          }
+          setLoading(false);
+        }
+      } catch (e) {
+        console.error('[LibraryPage] Failed to load papers:', e);
+        if (!cancelled) setLoading(false);
+      }
+    };
+    loadPapers();
+    return () => { cancelled = true; };
+  }, []);
+
+  // All unique tags from loaded papers
   const allTags = useMemo(
-    () => Array.from(new Set(seedPapers.flatMap((p) => p.tags))).sort(),
-    []
+    () => Array.from(new Set(papers.flatMap((p) => p.tags))).sort(),
+    [papers]
   );
 
   // Filter + sort
   const filtered = useMemo(() => {
-    let result = [...seedPapers];
+    let result = [...papers];
 
     if (search) {
       const q = search.toLowerCase();
@@ -65,7 +89,8 @@ export default function LibraryPage() {
       let cmp = 0;
       switch (sortKey) {
         case 'addedDate':
-          cmp = new Date(a.addedAt || a.addedDate || '1970-01-01').getTime() - new Date(b.addedAt || b.addedDate || '1970-01-01').getTime();
+          cmp = new Date(a.addedAt || a.addedDate || '1970-01-01').getTime() -
+                new Date(b.addedAt || b.addedDate || '1970-01-01').getTime();
           break;
         case 'year':
           cmp = a.year - b.year;
@@ -81,7 +106,7 @@ export default function LibraryPage() {
     });
 
     return result;
-  }, [search, selectedTag, onlyFavorites, sortKey, sortDir]);
+  }, [papers, search, selectedTag, onlyFavorites, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -91,6 +116,43 @@ export default function LibraryPage() {
     }
   };
 
+  // Loading skeleton
+  if (loading) {
+    return (
+      <AnimatedPage>
+        <div className="space-y-6">
+          <div>
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-64 mt-2" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-10 flex-1" />
+            <Skeleton className="h-10 w-10" />
+            <Skeleton className="h-10 w-10" />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Card key={i}>
+                <CardContent className="pt-5 pb-4 space-y-2">
+                  <div className="flex gap-1 mb-2">
+                    <Skeleton className="h-4 w-12" />
+                    <Skeleton className="h-4 w-12" />
+                  </div>
+                  <Skeleton className="h-5 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <div className="flex gap-3 mt-2">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-3 w-12" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </AnimatedPage>
+    );
+  }
+
   return (
     <AnimatedPage>
       <div className="space-y-6">
@@ -99,7 +161,7 @@ export default function LibraryPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">文献库</h1>
             <p className="text-sm text-muted-foreground">
-              共 {seedPapers.length} 篇文献 · 已筛选 {filtered.length} 篇
+              共 {papers.length} 篇文献 · 已筛选 {filtered.length} 篇
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -372,7 +434,7 @@ function PaperListItem({ paper }: { paper: Paper }) {
             </Badge>
           ))}
           <span className="text-[11px] text-muted-foreground ml-auto">
-            {formatRelativeTime(paper.addedAt || paper.addedDate || new Date().toISOString())}
+            {formatDate(paper.addedAt || paper.addedDate || '')}
           </span>
         </div>
       </div>

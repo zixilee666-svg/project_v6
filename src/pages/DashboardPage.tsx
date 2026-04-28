@@ -88,7 +88,7 @@ function ReadingHeatmap({ data }: { data: number[] }) {
 // ---------- 最近论文卡片 ----------
 function RecentPaper({ paper }: { paper: Paper }) {
   return (
-    <Link to={`/paper/${paper.id}`} className="group">
+    <Link to={`/dashboard/paper/${paper.id}`} className="group">
       <div className="flex items-start gap-3 rounded-lg p-2 transition-colors hover:bg-accent/50">
         <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
           <FileText className="h-4 w-4" />

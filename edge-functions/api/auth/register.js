@@ -6,6 +6,15 @@ import { createToken } from '../../lib/jwt.js';
 import { kvGet, kvSet, kvGetJson } from '../../lib/kv.js';
 import { success, error, parseJsonBody } from '../../lib/cors.js';
 
+// SHA-256 密码哈希
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + ':joan_academic_salt_2026');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default {
   async fetch(request) {
     if (request.method === 'OPTIONS') {
@@ -63,8 +72,9 @@ export default {
         createdAt: now
       };
 
-      // 存储用户（密码简单存储，实际应用中应加密）
-      const userWithPassword = { ...user, passwordHash: password };
+      // 存储用户（密码使用 SHA-256 哈希）
+      const passwordHash = await hashPassword(password);
+      const userWithPassword = { ...user, passwordHash };
       await kvSet(`users:${userId}`, userWithPassword);
       
       // 建立用户名索引

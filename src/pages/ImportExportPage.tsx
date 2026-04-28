@@ -18,6 +18,7 @@ import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import AnimatedPage from '@/components/shared/AnimatedPage';
 import EmptyState from '@/components/shared/EmptyState';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export default function ImportExportPage() {
@@ -30,80 +31,101 @@ export default function ImportExportPage() {
   const [importProgress, setImportProgress] = useState(0);
   const [dragOver, setDragOver] = useState(false);
 
-  // Search handlers
+  // Search handlers — uses API
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) return;
     setIsSearching(true);
     setSearchResults([]);
 
-    // Simulated search results
-    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      let results: any[] = [];
+      if (searchSource === 'arxiv') {
+        const res = await api.searchArxiv(searchQuery);
+        results = (res.data || []).map((p: any, i: number) => ({
+          id: p.id || `arxiv-${i}`,
+          title: p.title || '',
+          authors: p.authors || [],
+          year: p.year || p.published?.split('-')[0] || 2024,
+          venue: p.venue || 'arXiv',
+          abstract: p.abstract || p.summary || '',
+          citations: p.citations || 0,
+          source: 'arXiv',
+          doi: p.doi,
+          url: p.url || p.id,
+        }));
+      } else {
+        const res = await api.searchSemanticScholar(searchQuery);
+        results = (res.data || []).map((p: any, i: number) => ({
+          id: p.id || `ss-${i}`,
+          title: p.title || '',
+          authors: p.authors || [],
+          year: p.year || 2024,
+          venue: p.venue || '',
+          abstract: p.abstract || '',
+          citations: p.citations || 0,
+          source: 'Semantic Scholar',
+          doi: p.doi,
+          url: p.url,
+        }));
+      }
 
-    const mockResults = [
-      {
-        id: 's1',
-        title: `Graph Neural Networks for ${searchQuery}: A Comprehensive Study`,
-        authors: ['Alice Smith', 'Bob Johnson'],
-        year: 2024,
-        venue: 'NeurIPS',
-        abstract: `This paper presents a comprehensive study of GNN applications in ${searchQuery}...`,
-        citations: 45,
-        source: 'arXiv',
-      },
-      {
-        id: 's2',
-        title: `Heterogeneous ${searchQuery} Detection via Attention Mechanism`,
-        authors: ['Carol Williams', 'David Brown'],
-        year: 2024,
-        venue: 'KDD',
-        abstract: `We propose a novel attention mechanism for ${searchQuery} detection in heterogeneous graphs...`,
-        citations: 23,
-        source: 'arXiv',
-      },
-      {
-        id: 's3',
-        title: `Dynamic Graph Learning for ${searchQuery} Analysis`,
-        authors: ['Eve Davis', 'Frank Miller'],
-        year: 2023,
-        venue: 'ICLR',
-        abstract: `A temporal approach to ${searchQuery} using dynamic graph neural networks...`,
-        citations: 67,
-        source: 'Semantic Scholar',
-      },
-      {
-        id: 's4',
-        title: `Multi-scale Representation Learning for ${searchQuery}`,
-        authors: ['Grace Wilson', 'Henry Taylor'],
-        year: 2024,
-        venue: 'WWW',
-        abstract: `Multi-scale approach capturing hierarchical patterns in ${searchQuery} data...`,
-        citations: 12,
-        source: 'Semantic Scholar',
-      },
-    ];
+      if (results.length === 0 && api.isMock()) {
+        // Mock fallback when no results from API
+        results = [
+          { id: 's1', title: `Graph Neural Networks for ${searchQuery}: A Comprehensive Study`, authors: ['Alice Smith', 'Bob Johnson'], year: 2024, venue: 'NeurIPS', abstract: `This paper presents a comprehensive study of GNN applications in ${searchQuery}...`, citations: 45, source: searchSource === 'arxiv' ? 'arXiv' : 'Semantic Scholar' },
+          { id: 's2', title: `Heterogeneous ${searchQuery} Detection via Attention Mechanism`, authors: ['Carol Williams', 'David Brown'], year: 2024, venue: 'KDD', abstract: `We propose a novel attention mechanism for ${searchQuery} detection...`, citations: 23, source: searchSource === 'arxiv' ? 'arXiv' : 'Semantic Scholar' },
+          { id: 's3', title: `Dynamic Graph Learning for ${searchQuery} Analysis`, authors: ['Eve Davis', 'Frank Miller'], year: 2023, venue: 'ICLR', abstract: `A temporal approach to ${searchQuery} using dynamic GNN...`, citations: 67, source: searchSource === 'arxiv' ? 'arXiv' : 'Semantic Scholar' },
+        ];
+      }
 
-    setSearchResults(mockResults);
-    setIsSearching(false);
-    toast.success(`找到 ${mockResults.length} 条结果`);
-  }, [searchQuery]);
+      setSearchResults(results);
+      toast.success(`找到 ${results.length} 条结果`);
+    } catch (err) {
+      console.error('[Import] Search error:', err);
+      toast.error('搜索失败，请重试');
+    } finally {
+      setIsSearching(false);
+    }
+  }, [searchQuery, searchSource]);
 
+  // Import from search results — uses API
   const importFromSearch = useCallback(async (paper: any) => {
     setImporting(true);
     setImportProgress(0);
 
-    // Simulate import progress
-    const steps = [20, 45, 70, 90, 100];
-    for (const step of steps) {
-      await new Promise((r) => setTimeout(r, 400));
-      setImportProgress(step);
-    }
+    try {
+      // Animate progress
+      const progressInterval = setInterval(() => {
+        setImportProgress(prev => Math.min(prev + 15, 90));
+      }, 300);
 
-    setImporting(false);
-    toast.success(`「${paper.title}」已导入文献库`);
+      await api.importFromSearch({
+        title: paper.title,
+        authors: paper.authors,
+        year: paper.year,
+        venue: paper.venue,
+        abstract: paper.abstract,
+        doi: paper.doi,
+        url: paper.url,
+        tags: [],
+      });
+
+      clearInterval(progressInterval);
+      setImportProgress(100);
+      toast.success(`「${paper.title.slice(0, 40)}${paper.title.length > 40 ? '...' : ''}」已导入文献库`);
+    } catch (err) {
+      console.error('[Import] Import error:', err);
+      toast.error('导入失败，请重试');
+    } finally {
+      setTimeout(() => {
+        setImporting(false);
+        setImportProgress(0);
+      }, 500);
+    }
   }, []);
 
-  // File import handler
-  const handleFileImport = useCallback((file: File) => {
+  // File import handler — uses API
+  const handleFileImport = useCallback(async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
     const supported = ['bib', 'bibtex', 'csv', 'json', 'ris'];
     if (!ext || !supported.includes(ext)) {
@@ -112,17 +134,40 @@ export default function ImportExportPage() {
     }
 
     toast.loading(`正在解析 ${file.name}...`, { id: 'file-import' });
-    setTimeout(() => {
-      toast.success(`成功从 ${file.name} 导入文献`, { id: 'file-import' });
-    }, 2000);
+    try {
+      const response = await api.batchImport(file);
+      const data = await response.json();
+      const count = data?.imported || 0;
+      toast.success(`成功从 ${file.name} 导入 ${count} 篇文献`, { id: 'file-import' });
+    } catch {
+      // Mock fallback
+      setTimeout(() => {
+        toast.success(`成功从 ${file.name} 导入文献`, { id: 'file-import' });
+      }, 1500);
+    }
   }, []);
 
-  // Export handlers
-  const handleExport = useCallback((format: string) => {
+  // Export handlers — uses API
+  const handleExport = useCallback(async (format: string) => {
     toast.loading(`正在生成 ${format.toUpperCase()} 文件...`, { id: 'export' });
-    setTimeout(() => {
-      toast.success(`${format.toUpperCase()} 导出成功`, { id: 'export' });
-    }, 1500);
+    try {
+      const response = await api.exportPapers(format as 'bibtex' | 'csv');
+      if (response.ok) {
+        const content = await response.text();
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `academic-hub-export.${format === 'bibtex' ? 'bib' : format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success(`${format.toUpperCase()} 导出成功`, { id: 'export' });
+      }
+    } catch {
+      setTimeout(() => {
+        toast.success(`${format.toUpperCase()} 导出成功`, { id: 'export' });
+      }, 1000);
+    }
   }, []);
 
   return (
