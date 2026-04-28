@@ -1,18 +1,22 @@
-import { useState, useEffect } from 'react';
+// ========================================
+// DashboardPage — 主页仪表盘 (API 集成版)
+// ========================================
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   BookOpen, Star, Clock, Trophy, Flame, TrendingUp, FileText, FolderOpen,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import AnimatedPage from '@/components/shared/AnimatedPage';
 import JoanQuote from '@/components/shared/JoanQuote';
-import { seedPapers } from '@/data/papers';
-import { seedProjects } from '@/data/projects';
-import type { ReadingStats } from '@/types';
+import { api } from '@/lib/api';
+import type { Paper, Project, ReadingStats } from '@/types';
 import { cn } from '@/lib/utils';
 
 // ---------- 统计卡片 ----------
@@ -82,7 +86,7 @@ function ReadingHeatmap({ data }: { data: number[] }) {
 }
 
 // ---------- 最近论文卡片 ----------
-function RecentPaper({ paper }: { paper: typeof seedPapers[0] }) {
+function RecentPaper({ paper }: { paper: Paper }) {
   return (
     <Link to={`/paper/${paper.id}`} className="group">
       <div className="flex items-start gap-3 rounded-lg p-2 transition-colors hover:bg-accent/50">
@@ -108,7 +112,7 @@ function RecentPaper({ paper }: { paper: typeof seedPapers[0] }) {
 }
 
 // ---------- 项目进度卡片 ----------
-function ProjectCard({ project }: { project: typeof seedProjects[0] }) {
+function ProjectCard({ project }: { project: Project }) {
   const objectives = project.objectives || [];
   const completed = objectives.filter((o) => o.completed).length;
   const total = objectives.length;
@@ -132,9 +136,9 @@ function ProjectCard({ project }: { project: typeof seedProjects[0] }) {
           <div className="mt-3 space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">{completed}/{total} 目标完成</span>
-              <span className="font-medium">{project.progress}%</span>
+              <span className="font-medium">{project.progress || 0}%</span>
             </div>
-            <Progress value={project.progress} className="h-1.5" />
+            <Progress value={project.progress || 0} className="h-1.5" />
           </div>
           <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1">
@@ -152,41 +156,154 @@ function ProjectCard({ project }: { project: typeof seedProjects[0] }) {
   );
 }
 
+// ---------- Loading Skeleton ----------
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* 统计卡片骨架 */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <Card key={i}>
+            <CardContent className="flex items-center gap-4 pt-6">
+              <Skeleton className="h-12 w-12 rounded-xl" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-6 w-12" />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      {/* 热力图骨架 */}
+      <Card>
+        <CardHeader className="pb-3">
+          <Skeleton className="h-5 w-32" />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-12 w-full" />
+        </CardContent>
+      </Card>
+      {/* 论文和收藏骨架 */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-3">
+            <Skeleton className="h-5 w-20" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-start gap-3 p-2">
+                <Skeleton className="h-8 w-8 rounded-md" />
+                <div className="flex-1 space-y-1">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <Skeleton className="h-5 w-20" />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex items-start gap-2">
+                <Skeleton className="h-3 w-3 rounded-full" />
+                <div className="flex-1 space-y-1">
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-2 w-1/2" />
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+      {/* 项目骨架 */}
+      <Card>
+        <CardHeader className="pb-3">
+          <Skeleton className="h-5 w-20" />
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="space-y-2 p-4 border rounded-lg">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-1.5 w-full" />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ========== 主页面 ==========
 export default function DashboardPage() {
+  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<ReadingStats | null>(null);
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
 
-  useEffect(() => {
-    // 开发阶段使用种子数据模拟
-    setStats({
-      totalPapers: seedPapers.length,
-      weeklyRead: 5,
-      toRead: 8,
-      points: 1280,
-      streakDays: 7,
-      weeklyHeatmap: [
-        2, 3, 1, 4, 2, 0, 1,  // week 1
-        3, 5, 2, 3, 4, 1, 0,  // week 2
-        1, 4, 6, 3, 2, 3, 2,  // week 3
-        5, 3, 4, 2, 6, 3, 1,  // week 4
-        2, 1, 3, 5, 4, 2, 0,  // week 5
-        3, 4, 2, 3, 5, 1, 2,  // week 6
-        4, 6, 3, 2, 4, 5, 3,  // week 7
-        1, 3, 5, 4, 2, 3, 4,  // week 8
-        2, 4, 3, 5, 6, 2, 1,  // week 9
-        3, 5, 4, 3, 2, 4, 5,  // week 10
-        2, 3, 4, 5, 3, 1, 2,  // week 11
-        4, 6, 5, 3, 2, 4, 3,  // week 12
-      ],
-    });
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // 并行加载所有数据
+      const [statsRes, papersRes, projectsRes] = await Promise.all([
+        api.getReadingStats(),
+        api.getPapers({ pageSize: 200 }),
+        api.getProjects(),
+      ]);
+
+      if (statsRes.success && statsRes.data) {
+        setStats(statsRes.data);
+      }
+
+      if (papersRes.success && papersRes.data) {
+        setPapers(papersRes.data);
+      }
+
+      if (projectsRes.success && projectsRes.data) {
+        setProjects(projectsRes.data);
+      }
+    } catch (err) {
+      console.error('[Dashboard] Failed to load data:', err);
+      toast.error('加载数据失败，请刷新重试');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const recentPapers = seedPapers.slice().sort(
-    (a, b) => new Date(b.addedAt || b.addedDate || '').getTime() - new Date(a.addedAt || a.addedDate || '').getTime()
-  ).slice(0, 5);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  const favorites = seedPapers.filter((p) => p.isFavorited);
-  const allTags = Array.from(new Set(seedPapers.flatMap((p) => p.tags)));
+  // 计算衍生数据
+  const recentPapers = papers
+    .slice()
+    .sort((a, b) => new Date(b.addedAt || b.addedDate || '').getTime() - new Date(a.addedAt || a.addedDate || '').getTime())
+    .slice(0, 5);
+
+  const favorites = papers.filter((p) => p.isFavorited);
+  const allTags = Array.from(new Set(papers.flatMap((p) => p.tags)));
+
+  if (loading) {
+    return (
+      <AnimatedPage>
+        <div className="space-y-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <Skeleton className="h-8 w-48" />
+              <Skeleton className="h-4 w-64 mt-2" />
+            </div>
+            <Skeleton className="h-20 w-72" />
+          </div>
+          <DashboardSkeleton />
+        </div>
+      </AnimatedPage>
+    );
+  }
 
   return (
     <AnimatedPage>
@@ -263,11 +380,17 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-1">
-                {recentPapers.map((paper) => (
-                  <RecentPaper key={paper.id} paper={paper} />
-                ))}
-              </div>
+              {recentPapers.length > 0 ? (
+                <div className="space-y-1">
+                  {recentPapers.map((paper) => (
+                    <RecentPaper key={paper.id} paper={paper} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  暂无文献，<Link to="/import" className="text-primary hover:underline">导入文献</Link>开始你的学术之旅
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -277,27 +400,35 @@ export default function DashboardPage() {
               <CardTitle className="text-base">收藏精选</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {favorites.slice(0, 4).map((paper) => (
-                  <Link key={paper.id} to={`/paper/${paper.id}`} className="group block">
-                    <div className="flex items-start gap-2.5">
-                      <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
-                      <div className="min-w-0">
-                        <p className="line-clamp-2 text-xs font-medium group-hover:text-primary transition-colors">
-                          {paper.title}
-                        </p>
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">
-                          {paper.year} · {paper.venue} · {paper.citationCount} 引用
-                        </p>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-              <Separator className="my-3" />
-              <p className="text-xs text-muted-foreground text-center">
-                共 {favorites.length} 篇收藏文献
-              </p>
+              {favorites.length > 0 ? (
+                <>
+                  <div className="space-y-3">
+                    {favorites.slice(0, 4).map((paper) => (
+                      <Link key={paper.id} to={`/paper/${paper.id}`} className="group block">
+                        <div className="flex items-start gap-2.5">
+                          <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
+                          <div className="min-w-0">
+                            <p className="line-clamp-2 text-xs font-medium group-hover:text-primary transition-colors">
+                              {paper.title}
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-muted-foreground">
+                              {paper.year} · {paper.venue} · {paper.citationCount || 0} 引用
+                            </p>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                  <Separator className="my-3" />
+                  <p className="text-xs text-muted-foreground text-center">
+                    共 {favorites.length} 篇收藏文献
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  暂无收藏文献
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -313,11 +444,17 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {seedProjects.map((proj) => (
-                <ProjectCard key={proj.id} project={proj} />
-              ))}
-            </div>
+            {projects.length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {projects.map((proj) => (
+                  <ProjectCard key={proj.id} project={proj} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                暂无研究项目，<Link to="/research" className="text-primary hover:underline">创建第一个项目</Link>
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

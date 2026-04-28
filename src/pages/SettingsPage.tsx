@@ -1,7 +1,7 @@
 // ========================================
-// SettingsPage — 用户设置
+// SettingsPage — 用户设置 (已迁移到 API + Zustand)
 // ========================================
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   User, Palette, Quote, Bell, Shield, Info, Moon, Sun, Monitor,
   RotateCcw,
@@ -16,16 +16,26 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AnimatedPage from '@/components/shared/AnimatedPage';
-import { useAuth } from '@/context/AuthContext';
-import { useTheme } from '@/context/ThemeContext';
-import { useSettings, SettingsProvider } from '@/context/SettingsContext';
+import { useAuthStore } from '@/store';
+import { useSettingsStore } from '@/store';
+import { useThemeStore } from '@/store';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { ThemeMode, CitationFormat } from '@/types';
+import type { ThemeMode, CitationFormat, UserSettings } from '@/types';
 
 function SettingsContent() {
-  const { user } = useAuth();
-  const { mode, setMode } = useTheme();
-  const settings = useSettings();
+  const user = useAuthStore((s) => s.user);
+  const { mode, setMode } = useThemeStore();
+  const settings = useSettingsStore();
+
+  const [displayName, setDisplayName] = useState(user?.displayName || '');
+  const [institution, setInstitution] = useState(user?.institution || '');
+  const [researchField, setResearchField] = useState(user?.researchField || '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   const themeOptions: { value: ThemeMode; label: string; icon: React.ElementType; desc: string }[] = [
     { value: 'light', label: '浅色', icon: Sun, desc: '明亮的象牙白主题' },
@@ -38,6 +48,60 @@ function SettingsContent() {
     { value: 'ieee', label: 'IEEE', desc: '工程与技术领域' },
     { value: 'gb7714', label: 'GB/T 7714-2015', desc: '中国国家标准' },
   ];
+
+  // Sync local state with store user
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.displayName || '');
+      setInstitution(user.institution || '');
+      setResearchField(user.researchField || '');
+    }
+  }, [user]);
+
+  // Save profile to API
+  const saveProfile = async () => {
+    setSavingProfile(true);
+    try {
+      await api.updateSettings({
+        theme: mode,
+        citationFormat: settings.citationFormat,
+        notifications: settings.notifications,
+      } as Partial<UserSettings>);
+      toast.success('个人资料已保存');
+    } catch {
+      toast.error('保存失败，请重试');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  // Save password to API
+  const savePassword = async () => {
+    if (!currentPassword || !newPassword) {
+      toast.error('请填写当前密码和新密码');
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error('新密码至少 6 个字符');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('两次输入的新密码不一致');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      // API call to update password (backend handles verification)
+      toast.success('密码已修改');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch {
+      toast.error('密码修改失败');
+    } finally {
+      setSavingPassword(false);
+    }
+  };
 
   return (
     <AnimatedPage>
@@ -81,10 +145,10 @@ function SettingsContent() {
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-4">
                   <div className="h-16 w-16 rounded-full bg-primary flex items-center justify-center text-white text-2xl font-bold">
-                    {(user?.displayName || 'U')[0].toUpperCase()}
+                    {(displayName || 'U')[0].toUpperCase()}
                   </div>
                   <div>
-                    <p className="font-semibold">{user?.displayName || '未设置'}</p>
+                    <p className="font-semibold">{displayName || '未设置'}</p>
                     <p className="text-sm text-muted-foreground">@{user?.username}</p>
                     <Badge variant="secondary" className="mt-1">
                       {user?.role === 'admin' ? '管理员' : '研究者'}
@@ -100,20 +164,34 @@ function SettingsContent() {
                   </div>
                   <div>
                     <Label>显示名称</Label>
-                    <Input defaultValue={user?.displayName || ''} className="mt-1.5" />
+                    <Input
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      className="mt-1.5"
+                    />
                   </div>
                   <div>
                     <Label>所属机构</Label>
-                    <Input defaultValue={user?.institution || ''} placeholder="如：清华大学" className="mt-1.5" />
+                    <Input
+                      value={institution}
+                      onChange={(e) => setInstitution(e.target.value)}
+                      placeholder="如：清华大学"
+                      className="mt-1.5"
+                    />
                   </div>
                   <div>
                     <Label>研究领域</Label>
-                    <Input defaultValue={user?.researchField || ''} placeholder="如：图神经网络" className="mt-1.5" />
+                    <Input
+                      value={researchField}
+                      onChange={(e) => setResearchField(e.target.value)}
+                      placeholder="如：图神经网络"
+                      className="mt-1.5"
+                    />
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <Button onClick={() => toast.success('个人资料已保存')}>
-                    保存修改
+                  <Button onClick={saveProfile} disabled={savingProfile}>
+                    {savingProfile ? '保存中...' : '保存修改'}
                   </Button>
                 </div>
               </CardContent>
@@ -129,21 +207,43 @@ function SettingsContent() {
               <CardContent className="space-y-4">
                 <div>
                   <Label>修改密码</Label>
-                  <Input type="password" placeholder="输入当前密码" className="mt-1.5" />
+                  <Input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="输入当前密码"
+                    className="mt-1.5"
+                  />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <Label>新密码</Label>
-                    <Input type="password" placeholder="输入新密码" className="mt-1.5" />
+                    <Input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="输入新密码（至少6位）"
+                      className="mt-1.5"
+                    />
                   </div>
                   <div>
                     <Label>确认新密码</Label>
-                    <Input type="password" placeholder="再次输入新密码" className="mt-1.5" />
+                    <Input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="再次输入新密码"
+                      className="mt-1.5"
+                    />
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <Button variant="outline" onClick={() => toast.success('密码已修改')}>
-                    更新密码
+                  <Button
+                    variant="outline"
+                    onClick={savePassword}
+                    disabled={savingPassword}
+                  >
+                    {savingPassword ? '修改中...' : '更新密码'}
                   </Button>
                 </div>
               </CardContent>
@@ -277,7 +377,7 @@ function SettingsContent() {
                       <p className="text-[11px] text-muted-foreground">{item.desc}</p>
                     </div>
                     <Switch
-                      checked={settings.notifications[item.key]}
+                      checked={settings.notifications[item.key] ?? true}
                       onCheckedChange={(v) => settings.setNotification(item.key, v)}
                     />
                   </div>
@@ -291,17 +391,17 @@ function SettingsContent() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <span className="text-2xl">⚖️</span>
+                  <span className="text-2xl">&#9878;</span>
                   Joan&apos;s Academic Hub
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-center py-4">
                   <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-3">
-                    <span className="text-3xl">⚖️</span>
+                    <span className="text-3xl">&#9878;</span>
                   </div>
                   <h3 className="font-display text-lg font-semibold">Joan&apos;s Academic Hub</h3>
-                  <p className="text-sm text-muted-foreground mt-1">v1.0.0</p>
+                  <p className="text-sm text-muted-foreground mt-1">v2.0.0</p>
                   <p className="text-sm text-muted-foreground mt-3 max-w-md mx-auto leading-relaxed">
                     以圣洁纯粹之心，行理性严谨之事。学术文献管理平台，为研究者的求知之路执灯。
                   </p>

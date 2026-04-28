@@ -7,31 +7,37 @@ import {
   LayoutDashboard, BookOpen, FlaskConical, Settings,
   FileDown, Shield, Moon, Sun, Monitor,
   LogOut, Scale, Menu, X,
-  FolderOpen, FileText, MessageSquare,
+  FolderOpen, FileText, MessageSquare, Globe,
 } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
-import { useTheme } from '@/context/ThemeContext';
+import { useAuthStore } from '@/store/authStore';
+import { useThemeStore } from '@/store/themeStore';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: '仪表盘' },
-  { to: '/library', icon: BookOpen, label: '文献库' },
-  { to: '/my-library', icon: FolderOpen, label: '我的文献库' },
-  { to: '/materials', icon: FileText, label: '个人资料' },
-  { to: '/ai-chat', icon: MessageSquare, label: 'AI 对话' },
-  { to: '/research', icon: FlaskConical, label: '我的研究' },
-  { to: '/import-export', icon: FileDown, label: '导入导出' },
-  { to: '/settings', icon: Settings, label: '设置' },
+  { to: '/dashboard', icon: LayoutDashboard, label: '仪表盘' },
+  { to: '/dashboard/library', icon: BookOpen, label: '文献库' },
+  { to: '/dashboard/my-library', icon: FolderOpen, label: '我的文献库' },
+  { to: '/dashboard/materials', icon: FileText, label: '个人资料' },
+  { to: '/dashboard/ai-chat', icon: MessageSquare, label: 'AI 对话' },
+  { to: '/dashboard/research', icon: FlaskConical, label: '我的研究' },
+  { to: '/dashboard/import-export', icon: FileDown, label: '导入导出' },
+  { to: '/dashboard/settings', icon: Settings, label: '设置' },
 ];
 
 const adminItems = [
   { to: '/admin', icon: Shield, label: '管理后台' },
 ];
 
+const publicItems = [
+  { to: '/gallery', icon: Globe, label: '学术广场' },
+];
+
 export default function AppLayout() {
-  const { user, logout } = useAuth();
-  const { resolvedMode, mode, setMode } = useTheme();
+  const user = useAuthStore(s => s.user);
+  const logout = useAuthStore(s => s.logout);
+  const mode = useThemeStore(s => s.mode);
+  const setMode = useThemeStore(s => s.setMode);
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -47,6 +53,11 @@ export default function AppLayout() {
     if (mode === 'light') setMode('dark');
     else if (mode === 'dark') setMode('system');
     else setMode('light');
+  };
+
+  const handleLogout = () => {
+    logout();
+    window.location.hash = '#/login';
   };
 
   const ThemeIcon = mode === 'dark' ? Moon : mode === 'light' ? Sun : Monitor;
@@ -71,9 +82,19 @@ export default function AppLayout() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {/* Public links */}
+          {publicItems.map(item => (
+            <NavLink key={item.to} to={item.to} className={navLinkClass}>
+              <item.icon className="w-5 h-5" />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+
+          <div className="my-2 border-t border-primary-100 dark:border-primary-700" />
+
           {navItems.map(item => (
-            <NavLink key={item.to} to={item.to} end={item.to === '/'} className={navLinkClass}>
+            <NavLink key={item.to} to={item.to} end={item.to === '/dashboard'} className={navLinkClass}>
               <item.icon className="w-5 h-5" />
               <span>{item.label}</span>
             </NavLink>
@@ -96,10 +117,10 @@ export default function AppLayout() {
         <div className="p-4 border-t border-primary-100 dark:border-primary-700">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-8 h-8 rounded-full bg-accent-400 flex items-center justify-center text-white text-sm font-semibold">
-              {(user?.displayName || 'U')[0].toUpperCase()}
+              {(user?.displayName || user?.username || 'U')[0].toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user?.displayName || 'User'}</p>
+              <p className="text-sm font-medium truncate">{user?.displayName || user?.username || 'User'}</p>
               <p className="text-xs text-primary-400">{user?.role === 'admin' ? '管理员' : '研究者'}</p>
             </div>
           </div>
@@ -107,7 +128,7 @@ export default function AppLayout() {
             <button onClick={cycleTheme} className="p-2 rounded-md hover:bg-primary-50 dark:hover:bg-primary-700 transition-colors" title="切换主题">
               <ThemeIcon className="w-4 h-4" />
             </button>
-            <button onClick={logout} className="p-2 rounded-md hover:bg-error/10 text-primary-500 hover:text-error transition-colors" title="退出登录">
+            <button onClick={handleLogout} className="p-2 rounded-md hover:bg-error/10 text-primary-500 hover:text-error transition-colors" title="退出登录">
               <LogOut className="w-4 h-4" />
             </button>
           </div>
@@ -134,25 +155,34 @@ export default function AppLayout() {
             initial={{ x: -280 }}
             animate={{ x: 0 }}
             exit={{ x: -280 }}
-            className="w-70 h-full bg-white dark:bg-primary-800 p-4 shadow-xl"
+            className="w-[17.5rem] h-full bg-white dark:bg-primary-800 p-4 shadow-xl overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="space-y-1">
-              {navItems.map(item => (
-                <NavLink key={item.to} to={item.to} end={item.to === '/'} className={navLinkClass} onClick={() => setMobileMenuOpen(false)}>
-                  <item.icon className="w-5 h-5" />
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
-              {user?.role === 'admin' && (
-                <div className="my-4 border-t border-primary-100 dark:border-primary-700" />
-              )}
-              {user?.role === 'admin' && adminItems.map(item => (
+              {publicItems.map(item => (
                 <NavLink key={item.to} to={item.to} className={navLinkClass} onClick={() => setMobileMenuOpen(false)}>
                   <item.icon className="w-5 h-5" />
                   <span>{item.label}</span>
                 </NavLink>
               ))}
+              <div className="my-2 border-t border-primary-100 dark:border-primary-700" />
+              {navItems.map(item => (
+                <NavLink key={item.to} to={item.to} end={item.to === '/dashboard'} className={navLinkClass} onClick={() => setMobileMenuOpen(false)}>
+                  <item.icon className="w-5 h-5" />
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+              {user?.role === 'admin' && (
+                <>
+                  <div className="my-4 border-t border-primary-100 dark:border-primary-700" />
+                  {adminItems.map(item => (
+                    <NavLink key={item.to} to={item.to} className={navLinkClass} onClick={() => setMobileMenuOpen(false)}>
+                      <item.icon className="w-5 h-5" />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  ))}
+                </>
+              )}
             </div>
           </motion.div>
         </div>

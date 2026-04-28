@@ -228,8 +228,54 @@ export interface ApiResponse<T = unknown> {
   message?: string;
 }
 
-export interface PaginatedResponse<T> extends ApiResponse<T[]> {
+export interface PaginatedResponse<T> {
+  success: boolean;
+  data: T[];
   total: number;
   page: number;
   pageSize: number;
+  totalPages: number;
+  message?: string;
+}
+
+// ----- Space / Multi-tenant -----
+export interface SpaceConfig {
+  username: string;
+  displayName: string;
+  institution?: string;
+  researchField?: string;
+  avatar?: string;
+  bio?: string;
+  isPublic: boolean;
+  paperCount: number;
+  projectCount: number;
+  viewCount: number;
+  popularity: number;
+  lastActiveAt: string;
+  createdAt: string;
+  theme?: SpaceTheme;
+}
+
+export interface SpaceTheme {
+  primaryColor?: string;
+  accentColor?: string;
+  layout?: 'classic' | 'modern' | 'minimal' | 'card';
+  showPapers?: boolean;
+  showProjects?: boolean;
+  showStats?: boolean;
+  customCSS?: string;
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  totalPapers: number;
+  totalProjects: number;
+  totalSpaces: number;
+  activeUsers: number;
+  recentActivities: Array<{ type: string; description: string; timestamp: string }>;
+  systemHealth: {
+    kv: 'healthy' | 'degraded' | 'down';
+    edgeFunctions: 'healthy' | 'degraded' | 'down';
+    cloudFunctions: 'healthy' | 'degraded' | 'down';
+  };
 }

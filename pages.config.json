@@ -1,45 +1,59 @@
 {
   "$schema": "https://edgeone.ai/schemas/pages-config.json",
   "version": 2,
+  "edgeFunctions": {
+    "dir": "./edge-functions"
+  },
+  "cloudFunctions": {
+    "dir": "./cloud-functions"
+  },
   "routes": [
     {
       "path": "/api/auth/*",
-      "runtime": "edge",
       "target": "./edge-functions/api/auth"
     },
     {
       "path": "/api/papers/*",
-      "runtime": "edge",
       "target": "./edge-functions/api/papers"
     },
     {
       "path": "/api/projects/*",
-      "runtime": "edge",
       "target": "./edge-functions/api/projects"
     },
     {
       "path": "/api/libraries/*",
-      "runtime": "edge",
       "target": "./edge-functions/api/libraries"
     },
     {
+      "path": "/api/materials/*",
+      "target": "./edge-functions/api/materials"
+    },
+    {
+      "path": "/api/chats/*",
+      "target": "./edge-functions/api/chats"
+    },
+    {
+      "path": "/api/spaces/*",
+      "target": "./edge-functions/api/spaces"
+    },
+    {
+      "path": "/api/admin/*",
+      "target": "./edge-functions/api/admin"
+    },
+    {
       "path": "/api/settings/*",
-      "runtime": "edge",
       "target": "./edge-functions/api/settings"
     },
     {
       "path": "/api/stats/*",
-      "runtime": "edge",
       "target": "./edge-functions/api/stats"
     },
     {
       "path": "/api/search/*",
-      "runtime": "edge",
       "target": "./edge-functions/api/search"
     },
     {
       "path": "/api/ai/*",
-      "runtime": "node",
       "target": "./cloud-functions/api"
     },
     {

@@ -1,7 +1,7 @@
 // ========================================
 // PaperDetailPage — 文献详情
 // ========================================
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Star, ExternalLink, Quote, BookmarkPlus,
@@ -15,69 +15,155 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import AnimatedPage from '@/components/shared/AnimatedPage';
 import JoanQuote from '@/components/shared/JoanQuote';
 import EmptyState from '@/components/shared/EmptyState';
-import { seedPapers } from '@/data/papers';
+import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
+import type { Paper, Note, Highlight } from '@/types';
 
+// ---------- Loading Skeleton ----------
+function PaperDetailSkeleton() {
+  return (
+    <AnimatedPage>
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-8 w-20" />
+          <div className="flex-1" />
+          <div className="flex gap-2">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-8 w-16" />
+            ))}
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} className="h-6 w-16 rounded-full" />
+            ))}
+          </div>
+          <Skeleton className="h-8 w-3/4" />
+          <div className="flex gap-4">
+            {[...Array(5)].map((_, i) => (
+              <Skeleton key={i} className="h-4 w-24" />
+            ))}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <Skeleton className="h-40 w-full rounded-lg" />
+          <Skeleton className="h-24 w-full rounded-lg" />
+          <Skeleton className="h-32 w-full rounded-lg" />
+        </div>
+      </div>
+    </AnimatedPage>
+  );
+}
+
+// ========== Main Page ==========
 export default function PaperDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
+
+  // Data state
+  const [paper, setPaper] = useState<Paper | null>(null);
   const [isFav, setIsFav] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [savedNotes, setSavedNotes] = useState<{ id: string; content: string; createdAt: string }[]>([]);
+  const [noteInput, setNoteInput] = useState('');
+  const [savedNotes, setSavedNotes] = useState<Note[]>([]);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [relatedPapers, setRelatedPapers] = useState<Paper[]>([]);
 
-  const paper = useMemo(
-    () => seedPapers.find((p) => p.id === id),
-    [id]
-  );
+  // UI state
+  const [loading, setLoading] = useState(true);
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [favLoading, setFavLoading] = useState(false);
+  const [error, setError] = useState(false);
 
-  if (!paper) {
-    return (
-      <AnimatedPage>
-        <EmptyState
-          icon={<FileText className="h-8 w-8" />}
-          title="文献未找到"
-          description="请求的文献不存在或已被移除。"
-          action={
-            <Button onClick={() => navigate('/library')}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              返回文献库
-            </Button>
-          }
-        />
-      </AnimatedPage>
-    );
-  }
+  // Load paper data on mount
+  const loadPaper = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    setError(false);
+    try {
+      const [paperRes, notesRes, highlightsRes, allPapersRes] = await Promise.all([
+        api.getPaper(id),
+        api.getNotes(id),
+        api.getHighlights(id),
+        api.getPapers(),
+      ]);
 
-  // Sync favorite state with paper data
-  useEffect(() => {
-    setIsFav(paper.isFavorited);
-  }, [paper.isFavorited]);
+      if (paperRes.success && paperRes.data) {
+        setPaper(paperRes.data);
+        setIsFav(paperRes.data.isFavorited);
 
-  const toggleFav = () => {
-    setIsFav(!isFav);
-    toast.success(isFav ? '已取消收藏' : '已添加到收藏');
+        // Related papers: tag matching
+        if (allPapersRes.success && allPapersRes.data) {
+          const currentTags = new Set(paperRes.data.tags);
+          setRelatedPapers(
+            allPapersRes.data
+              .filter((p) => p.id !== paperRes.data!.id && p.tags.some((t) => currentTags.has(t)))
+              .slice(0, 6)
+          );
+        }
+      } else {
+        setError(true);
+      }
+
+      if (notesRes.success && notesRes.data) {
+        setSavedNotes(notesRes.data);
+      }
+
+      if (highlightsRes.success && highlightsRes.data) {
+        setHighlights(highlightsRes.data);
+      }
+    } catch (err) {
+      console.error('[PaperDetail] Load error:', err);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useState(() => { loadPaper(); });
+
+  // Toggle favorite
+  const toggleFav = async () => {
+    if (!id || favLoading) return;
+    setFavLoading(true);
+    try {
+      const res = await api.toggleFavorite(id);
+      if (res.success && res.data) {
+        setIsFav(res.data.isFavorited);
+        toast.success(res.data.isFavorited ? '已添加到收藏' : '已取消收藏');
+      }
+    } catch {
+      toast.error('操作失败，请重试');
+    } finally {
+      setFavLoading(false);
+    }
   };
 
-  const addNote = () => {
-    if (!notes.trim()) return;
-    setSavedNotes((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(36),
-        content: notes.trim(),
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-    setNotes('');
-    toast.success('笔记已保存');
+  // Add note
+  const addNote = async () => {
+    if (!noteInput.trim() || !id || noteSaving) return;
+    setNoteSaving(true);
+    try {
+      const res = await api.addNote(id, noteInput.trim());
+      if (res.success && res.data) {
+        setSavedNotes((prev) => [...prev, res.data]);
+        setNoteInput('');
+        toast.success('笔记已保存');
+      }
+    } catch {
+      toast.error('保存失败，请重试');
+    } finally {
+      setNoteSaving(false);
+    }
   };
 
   const copyCitation = (format: string) => {
+    if (!paper) return;
     let citation = '';
     const authors = paper.authors.join(', ');
     switch (format) {
@@ -99,7 +185,6 @@ export default function PaperDetailPage() {
     navigator.clipboard.writeText(citation).then(() => {
       toast.success(`${format.toUpperCase()} 引用已复制`);
     }).catch(() => {
-      // Fallback: use textarea copy
       const textarea = document.createElement('textarea');
       textarea.value = citation;
       document.body.appendChild(textarea);
@@ -110,13 +195,27 @@ export default function PaperDetailPage() {
     });
   };
 
-  const relatedPapers = seedPapers
-    .filter(
-      (p) =>
-        p.id !== paper.id &&
-        p.tags.some((t) => paper.tags.includes(t))
-    )
-    .slice(0, 6);
+  // Loading state
+  if (loading) return <PaperDetailSkeleton />;
+
+  // Error / not found state
+  if (error || !paper) {
+    return (
+      <AnimatedPage>
+        <EmptyState
+          icon={<FileText className="h-8 w-8" />}
+          title="文献未找到"
+          description="请求的文献不存在或已被移除。"
+          action={
+            <Button onClick={() => navigate('/library')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              返回文献库
+            </Button>
+          }
+        />
+      </AnimatedPage>
+    );
+  }
 
   return (
     <AnimatedPage>
@@ -158,6 +257,7 @@ export default function PaperDetailPage() {
               variant={isFav ? 'default' : 'outline'}
               size="sm"
               onClick={toggleFav}
+              disabled={favLoading}
             >
               <Star className={cn('h-4 w-4 mr-1', isFav && 'fill-current')} />
               {isFav ? '已收藏' : '收藏'}
@@ -231,7 +331,14 @@ export default function PaperDetailPage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="highlights">高亮标注</TabsTrigger>
+            <TabsTrigger value="highlights">
+              高亮标注
+              {highlights.length > 0 && (
+                <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5">
+                  {highlights.length}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="related">相关文献</TabsTrigger>
           </TabsList>
 
@@ -303,13 +410,13 @@ export default function PaperDetailPage() {
               <CardContent className="space-y-3">
                 <Textarea
                   placeholder="在这里记录你的阅读笔记、思考与感悟..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+                  value={noteInput}
+                  onChange={(e) => setNoteInput(e.target.value)}
                   rows={5}
                 />
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={addNote} disabled={!notes.trim()}>
-                    保存笔记
+                  <Button size="sm" onClick={addNote} disabled={!noteInput.trim() || noteSaving}>
+                    {noteSaving ? '保存中...' : '保存笔记'}
                   </Button>
                 </div>
               </CardContent>
@@ -348,11 +455,41 @@ export default function PaperDetailPage() {
 
           {/* Highlights Tab */}
           <TabsContent value="highlights" className="mt-4">
-            <EmptyState
-              icon={<Highlighter className="h-8 w-8" />}
-              title="暂无高亮标注"
-              description="在 PDF 预览模式中选择文本即可创建高亮标注。PDF 预览功能即将上线。"
-            />
+            {highlights.length === 0 ? (
+              <EmptyState
+                icon={<Highlighter className="h-8 w-8" />}
+                title="暂无高亮标注"
+                description="在 PDF 预览模式中选择文本即可创建高亮标注。PDF 预览功能即将上线。"
+              />
+            ) : (
+              <div className="space-y-3">
+                {highlights.map((hl, i) => (
+                  <motion.div
+                    key={hl.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                  >
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div
+                          className="text-sm leading-relaxed px-3 py-2 rounded"
+                          style={{ backgroundColor: `${hl.color}22`, borderLeft: `3px solid ${hl.color}` }}
+                        >
+                          {hl.text}
+                        </div>
+                        {hl.note && (
+                          <p className="mt-2 text-xs text-muted-foreground italic">{hl.note}</p>
+                        )}
+                        <p className="mt-2 text-[11px] text-muted-foreground">
+                          {hl.page ? `第 ${hl.page} 页 · ` : ''}{formatDate(hl.createdAt)}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           {/* Related Tab */}

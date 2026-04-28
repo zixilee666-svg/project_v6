@@ -1,15 +1,16 @@
 // ========================================
 // ResearchPage — 研究项目管理
+// Migrated to use API services layer
 // ========================================
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Plus, FlaskConical, BookOpen, Clock, Target, ChevronRight,
-  CheckCircle2, Circle, MoreHorizontal, Trash2, Edit3, FolderOpen,
+  CheckCircle2, Circle, Trash2, FolderOpen, Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -18,23 +19,52 @@ import { Progress } from '@/components/ui/progress';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import AnimatedPage from '@/components/shared/AnimatedPage';
 import EmptyState from '@/components/shared/EmptyState';
 import JoanQuote from '@/components/shared/JoanQuote';
-import { seedPapers } from '@/data/papers';
-import { seedProjects } from '@/data/projects';
-import type { Project, Objective } from '@/types';
+import { api } from '@/lib/api';
+import type { Project, Paper, Objective } from '@/types';
 import { cn, formatDate } from '@/lib/utils';
 
 type ProjectStatus = Project['status'];
 
 export default function ResearchPage() {
-  const [projects, setProjects] = useState<Project[]>(seedProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [papers, setPapers] = useState<Paper[]>([]);
   const [filterStatus, setFilterStatus] = useState<ProjectStatus | 'all'>('all');
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [newObjectiveText, setNewObjectiveText] = useState<Record<string, string>>({});
+
+  // Load projects and papers on mount
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [projRes, paperRes] = await Promise.all([
+        api.getProjects(),
+        api.getPapers({ pageSize: 200 }),
+      ]);
+      if (projRes.success && projRes.data) {
+        setProjects(projRes.data);
+      }
+      if (paperRes.success && paperRes.data) {
+        setPapers(paperRes.data);
+      }
+    } catch (err) {
+      console.error('[ResearchPage] Load error:', err);
+      toast.error('加载数据失败');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const filtered = useMemo(() => {
     if (filterStatus === 'all') return projects;
@@ -48,75 +78,126 @@ export default function ResearchPage() {
     'planned': { label: '计划中', variant: 'outline', color: 'bg-muted-foreground' },
   };
 
-  const toggleObjective = (projectId: string, objectiveId: string) => {
-    setProjects((prev) =>
-      prev.map((p) => {
-        if (p.id !== projectId) return p;
-        const objs = p.objectives || [];
-        const newObjectives = objs.map((o) =>
-          o.id === objectiveId ? { ...o, completed: !o.completed } : o
-        );
-        const completed = newObjectives.filter((o) => o.completed).length;
-        return {
-          ...p,
-          objectives: newObjectives,
-          progress: newObjectives.length ? Math.round((completed / newObjectives.length) * 100) : 0,
-          status: completed === newObjectives.length && newObjectives.length > 0 ? 'completed' : 'in-progress',
-          updatedAt: new Date().toISOString(),
-        };
-      })
+  const toggleObjective = async (projectId: string, objectiveId: string) => {
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+
+    const objs = proj.objectives || [];
+    const newObjectives = objs.map((o) =>
+      o.id === objectiveId ? { ...o, completed: !o.completed } : o
     );
+    const completed = newObjectives.filter((o) => o.completed).length;
+    const newProgress = newObjectives.length ? Math.round((completed / newObjectives.length) * 100) : 0;
+    const newStatus: ProjectStatus = completed === newObjectives.length && newObjectives.length > 0 ? 'completed' : 'in-progress';
+
+    // Optimistic update
+    setProjects(prev => prev.map(p =>
+      p.id === projectId
+        ? { ...p, objectives: newObjectives, progress: newProgress, status: newStatus, updatedAt: new Date().toISOString() }
+        : p
+    ));
+
+    try {
+      await api.updateProject(projectId, {
+        objectives: newObjectives,
+        progress: newProgress,
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      // Revert on error
+      setProjects(prev => prev.map(p => p.id === projectId ? proj : p));
+      toast.error('更新目标失败');
+    }
   };
 
-  const addObjective = (projectId: string, text: string) => {
+  const addObjective = async (projectId: string, text: string) => {
     if (!text.trim()) return;
-    setProjects((prev) =>
-      prev.map((p) => {
-        if (p.id !== projectId) return p;
-        return {
-          ...p,
-          objectives: [
-            ...(p.objectives || []),
-            { id: Date.now().toString(36), text: text.trim(), completed: false },
-          ],
-        };
-      })
-    );
-  };
+    const trimmedText = text.trim();
 
-  const deleteProject = (projectId: string) => {
-    setProjects((prev) => prev.filter((p) => p.id !== projectId));
-    toast.success('项目已删除');
-  };
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
 
-  const createProject = () => {
-    if (!newTitle.trim()) return;
-    const project: Project = {
-      id: Date.now().toString(36),
-      title: newTitle.trim(),
-      description: newDesc.trim(),
-      progress: 0,
-      status: 'planned',
-      relatedPaperIds: [],
-      objectives: [],
-      notes: '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    const newObj: Objective = {
+      id: 'obj-' + Date.now(),
+      text: trimmedText,
+      completed: false,
     };
-    setProjects((prev) => [project, ...prev]);
-    setNewTitle('');
-    setNewDesc('');
-    setCreateOpen(false);
-    toast.success('项目已创建');
+    const newObjectives = [...(proj.objectives || []), newObj];
+
+    // Optimistic update
+    setProjects(prev => prev.map(p =>
+      p.id === projectId
+        ? { ...p, objectives: newObjectives }
+        : p
+    ));
+    setNewObjectiveText(prev => ({ ...prev, [projectId]: '' }));
+
+    try {
+      await api.updateProject(projectId, { objectives: newObjectives });
+    } catch {
+      // Revert on error
+      setProjects(prev => prev.map(p => p.id === projectId ? proj : p));
+      toast.error('添加目标失败');
+    }
+  };
+
+  const deleteProject = async (projectId: string) => {
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+
+    // Optimistic update
+    setProjects(prev => prev.filter(p => p.id !== projectId));
+
+    try {
+      await api.deleteProject(projectId);
+      toast.success('项目已删除');
+    } catch {
+      // Revert on error
+      if (proj) setProjects(prev => [proj, ...prev]);
+      toast.error('删除项目失败');
+    }
+  };
+
+  const createProject = async () => {
+    if (!newTitle.trim()) return;
+
+    try {
+      const res = await api.createProject({
+        name: newTitle.trim(),
+        description: newDesc.trim(),
+        status: 'planned',
+        objectives: [],
+        paperIds: [],
+      });
+      if (res.success && res.data) {
+        setProjects(prev => [res.data, ...prev]);
+        setNewTitle('');
+        setNewDesc('');
+        setCreateOpen(false);
+        toast.success('项目已创建');
+      }
+    } catch {
+      toast.error('创建项目失败');
+    }
   };
 
   const stats = useMemo(() => {
     const total = projects.length;
-    const inProgress = projects.filter((p) => p.status === 'in-progress').length;
+    const inProgress = projects.filter((p) => p.status === 'in-progress' || p.status === 'active').length;
     const completed = projects.filter((p) => p.status === 'completed').length;
     const planned = projects.filter((p) => p.status === 'planned').length;
     return { total, inProgress, completed, planned };
   }, [projects]);
+
+  const getRelatedPaper = (paperId: string): Paper | undefined => {
+    return papers.find(p => p.id === paperId);
+  };
+
+  // Get paper IDs from project
+  const getProjectPaperIds = (project: Project): string[] => {
+    return project.relatedPaperIds || project.paperIds || [];
+  };
 
   return (
     <AnimatedPage>
@@ -169,21 +250,34 @@ export default function ResearchPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: '总项目', value: stats.total, color: 'text-primary' },
-            { label: '进行中', value: stats.inProgress, color: 'text-blue-500' },
-            { label: '已完成', value: stats.completed, color: 'text-green-500' },
-            { label: '计划中', value: stats.planned, color: 'text-muted-foreground' },
-          ].map((s) => (
-            <Card key={s.label}>
-              <CardContent className="pt-5 pb-4">
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-                <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {loading ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[0, 1, 2, 3].map(i => (
+              <Card key={i}>
+                <CardContent className="pt-5 pb-4">
+                  <Skeleton className="h-3 w-16 mb-2" />
+                  <Skeleton className="h-8 w-10" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { label: '总项目', value: stats.total, color: 'text-primary' },
+              { label: '进行中', value: stats.inProgress, color: 'text-blue-500' },
+              { label: '已完成', value: stats.completed, color: 'text-green-500' },
+              { label: '计划中', value: stats.planned, color: 'text-muted-foreground' },
+            ].map((s) => (
+              <Card key={s.label}>
+                <CardContent className="pt-5 pb-4">
+                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                  <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {/* Filter */}
         <div className="flex items-center gap-2">
@@ -200,7 +294,24 @@ export default function ResearchPage() {
         </div>
 
         {/* Projects */}
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="space-y-4">
+            {[0, 1, 2].map(i => (
+              <Card key={i}>
+                <CardContent className="pt-5 pb-4">
+                  <div className="flex items-start gap-4">
+                    <Skeleton className="h-10 w-10 rounded-lg" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-5 w-48" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-1.5 w-full" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
           <EmptyState
             icon={<FlaskConical className="h-8 w-8" />}
             title="暂无研究项目"
@@ -214,191 +325,216 @@ export default function ResearchPage() {
           />
         ) : (
           <div className="space-y-4">
-            {filtered.map((project, i) => (
-              <motion.div
-                key={project.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.06 }}
-              >
-                <Card className="overflow-hidden">
-                  {/* Project Header */}
-                  <CardContent
-                    className="pt-5 pb-4 cursor-pointer hover:bg-muted/30 transition-colors"
-                    onClick={() =>
-                      setExpandedProject(expandedProject === project.id ? null : project.id)
-                    }
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <FlaskConical className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h3 className="text-base font-semibold">{project.title || project.name || '未命名项目'}</h3>
-                            <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
-                              {project.description}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <Badge variant={statusConfig[project.status].variant}>
-                              {statusConfig[project.status].label}
-                            </Badge>
-                            <ChevronRight
-                              className={cn(
-                                'h-4 w-4 text-muted-foreground transition-transform',
-                                expandedProject === project.id && 'rotate-90'
-                              )}
-                            />
-                          </div>
+            {filtered.map((project, i) => {
+              const projectPaperIds = getProjectPaperIds(project);
+              return (
+                <motion.div
+                  key={project.id}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                >
+                  <Card className="overflow-hidden">
+                    {/* Project Header */}
+                    <CardContent
+                      className="pt-5 pb-4 cursor-pointer hover:bg-muted/30 transition-colors"
+                      onClick={() =>
+                        setExpandedProject(expandedProject === project.id ? null : project.id)
+                      }
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <FlaskConical className="h-5 w-5" />
                         </div>
-
-                        {/* Progress bar */}
-                        <div className="mt-3 space-y-1.5">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">
-                              {(project.objectives || []).filter((o) => o.completed).length}/{(project.objectives || []).length} 目标
-                            </span>
-                            <span className="font-medium">{project.progress || 0}%</span>
-                          </div>
-                          <Progress value={project.progress || 0} className="h-1.5" />
-                        </div>
-
-                        {/* Meta */}
-                        <div className="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <FolderOpen className="h-3 w-3" />
-                            {(project.relatedPaperIds || project.paperIds || []).length} 篇文献
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            更新于 {formatDate(project.updatedAt || '')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-
-                  {/* Expanded content */}
-                  <AnimatePresence>
-                    {expandedProject === project.id && (
-                      <motion.div
-                        initial={{ height: 0 }}
-                        animate={{ height: 'auto' }}
-                        exit={{ height: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <Separator />
-                        <div className="p-5 space-y-4">
-                          {/* Joan Quote */}
-                          <JoanQuote category="academic" />
-
-                          {/* Objectives */}
-                          <div>
-                            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                              <Target className="h-4 w-4" />
-                              研究目标
-                            </h4>
-                            <div className="space-y-2">
-                              {(project.objectives || []).map((obj) => (
-                                <div
-                                  key={obj.id}
-                                  className="flex items-center gap-3 group"
-                                >
-                                  <button
-                                    onClick={() => toggleObjective(project.id, obj.id)}
-                                    className="shrink-0"
-                                  >
-                                    {obj.completed ? (
-                                      <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                    ) : (
-                                      <Circle className="h-5 w-5 text-muted-foreground hover:text-primary transition-colors" />
-                                    )}
-                                  </button>
-                                  <span
-                                    className={cn(
-                                      'text-sm flex-1',
-                                      obj.completed && 'line-through text-muted-foreground'
-                                    )}
-                                  >
-                                    {obj.text}
-                                  </span>
-                                </div>
-                              ))}
-                              {(project.objectives || []).length === 0 && (
-                                <p className="text-sm text-muted-foreground">
-                                  暂无目标，在下方输入框添加。
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Related Papers */}
-                          {(project.relatedPaperIds || project.paperIds || []).length > 0 && (
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
                             <div>
-                              <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                                <BookOpen className="h-4 w-4" />
-                                关联文献 ({(project.relatedPaperIds || project.paperIds || []).length})
-                              </h4>
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                {(project.relatedPaperIds || project.paperIds || []).map((pid) => {
-                                  const paper = seedPapers.find((p) => p.id === pid);
-                                  if (!paper) return null;
-                                  return (
-                                    <Link
-                                      key={pid}
-                                      to={`/paper/${pid}`}
-                                      className="group flex items-start gap-2 rounded-md p-2 hover:bg-muted/50 transition-colors"
-                                    >
-                                      <BookOpen className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary" />
-                                      <div className="min-w-0">
-                                        <p className="line-clamp-1 text-xs font-medium group-hover:text-primary transition-colors">
-                                          {paper.title}
-                                        </p>
-                                        <p className="text-[10px] text-muted-foreground">
-                                          {paper.year} · {paper.venue}
-                                        </p>
-                                      </div>
-                                    </Link>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Notes */}
-                          {project.notes && (
-                            <div>
-                              <h4 className="text-sm font-semibold mb-2">研究笔记</h4>
-                              <p className="text-sm text-muted-foreground leading-relaxed bg-muted/30 rounded-md p-3">
-                                {project.notes}
+                              <h3 className="text-base font-semibold">{project.title || project.name || '未命名项目'}</h3>
+                              <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
+                                {project.description}
                               </p>
                             </div>
-                          )}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge variant={statusConfig[project.status]?.variant || 'outline'}>
+                                {statusConfig[project.status]?.label || '未知'}
+                              </Badge>
+                              <ChevronRight
+                                className={cn(
+                                  'h-4 w-4 text-muted-foreground transition-transform',
+                                  expandedProject === project.id && 'rotate-90'
+                                )}
+                              />
+                            </div>
+                          </div>
 
-                          {/* Actions */}
-                          <div className="flex items-center gap-2 pt-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-error hover:bg-error/10 hover:text-error"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteProject(project.id);
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5 mr-1" />
-                              删除项目
-                            </Button>
+                          {/* Progress bar */}
+                          <div className="mt-3 space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">
+                                {(project.objectives || []).filter((o) => o.completed).length}/{(project.objectives || []).length} 目标
+                              </span>
+                              <span className="font-medium">{project.progress || 0}%</span>
+                            </div>
+                            <Progress value={project.progress || 0} className="h-1.5" />
+                          </div>
+
+                          {/* Meta */}
+                          <div className="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <FolderOpen className="h-3 w-3" />
+                              {projectPaperIds.length} 篇文献
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              更新于 {formatDate(project.updatedAt || '')}
+                            </span>
                           </div>
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </Card>
-              </motion.div>
-            ))}
+                      </div>
+                    </CardContent>
+
+                    {/* Expanded content */}
+                    <AnimatePresence>
+                      {expandedProject === project.id && (
+                        <motion.div
+                          initial={{ height: 0 }}
+                          animate={{ height: 'auto' }}
+                          exit={{ height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <Separator />
+                          <div className="p-5 space-y-4">
+                            {/* Joan Quote */}
+                            <JoanQuote category="academic" />
+
+                            {/* Objectives */}
+                            <div>
+                              <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                                <Target className="h-4 w-4" />
+                                研究目标
+                              </h4>
+                              <div className="space-y-2">
+                                {(project.objectives || []).map((obj) => (
+                                  <div
+                                    key={obj.id}
+                                    className="flex items-center gap-3 group"
+                                  >
+                                    <button
+                                      onClick={() => toggleObjective(project.id, obj.id)}
+                                      className="shrink-0"
+                                    >
+                                      {obj.completed ? (
+                                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                      ) : (
+                                        <Circle className="h-5 w-5 text-muted-foreground hover:text-primary transition-colors" />
+                                      )}
+                                    </button>
+                                    <span
+                                      className={cn(
+                                        'text-sm flex-1',
+                                        obj.completed && 'line-through text-muted-foreground'
+                                      )}
+                                    >
+                                      {obj.text}
+                                    </span>
+                                  </div>
+                                ))}
+                                {(project.objectives || []).length === 0 && (
+                                  <p className="text-sm text-muted-foreground">
+                                    暂无目标，在下方输入框添加。
+                                  </p>
+                                )}
+                                {/* Add objective input */}
+                                <div className="flex items-center gap-2 mt-3">
+                                  <Input
+                                    value={newObjectiveText[project.id] || ''}
+                                    onChange={(e) => setNewObjectiveText(prev => ({ ...prev, [project.id]: e.target.value }))}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        addObjective(project.id, newObjectiveText[project.id] || '');
+                                      }
+                                    }}
+                                    placeholder="添加新目标..."
+                                    className="text-sm"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => addObjective(project.id, newObjectiveText[project.id] || '')}
+                                    disabled={!newObjectiveText[project.id]?.trim()}
+                                  >
+                                    添加
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Related Papers */}
+                            {projectPaperIds.length > 0 && (
+                              <div>
+                                <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                                  <BookOpen className="h-4 w-4" />
+                                  关联文献 ({projectPaperIds.length})
+                                </h4>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  {projectPaperIds.map((pid) => {
+                                    const paper = getRelatedPaper(pid);
+                                    if (!paper) return null;
+                                    return (
+                                      <Link
+                                        key={pid}
+                                        to={`/paper/${pid}`}
+                                        className="group flex items-start gap-2 rounded-md p-2 hover:bg-muted/50 transition-colors"
+                                      >
+                                        <BookOpen className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary" />
+                                        <div className="min-w-0">
+                                          <p className="line-clamp-1 text-xs font-medium group-hover:text-primary transition-colors">
+                                            {paper.title}
+                                          </p>
+                                          <p className="text-[10px] text-muted-foreground">
+                                            {paper.year} · {paper.venue}
+                                          </p>
+                                        </div>
+                                      </Link>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Notes */}
+                            {project.notes && (
+                              <div>
+                                <h4 className="text-sm font-semibold mb-2">研究笔记</h4>
+                                <p className="text-sm text-muted-foreground leading-relaxed bg-muted/30 rounded-md p-3">
+                                  {project.notes}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-2 pt-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteProject(project.id);
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                删除项目
+                              </Button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </Card>
+                </motion.div>
+              );
+            })}
           </div>
         )}
       </div>
