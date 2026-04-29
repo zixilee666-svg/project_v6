@@ -1,14 +1,15 @@
 // ========================================
-// LibraryPage — 文献库
-// 已迁移：从 seedPapers 改为 api.getPapers() 加载
+// LibraryPage — 文献库 (增强版)
+// 功能：搜索防抖、乐观更新、URL同步
 // ========================================
-import { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Search, Filter, Grid3X3, List, Star, ExternalLink,
-  ChevronDown, BookOpen, Tag, X, SlidersHorizontal,
+  ChevronDown, BookOpen, Tag, X, SlidersHorizontal, RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -20,20 +21,125 @@ import { api } from '@/lib/api';
 import type { Paper } from '@/types';
 import { cn, formatDate } from '@/lib/utils';
 
+// ---- 防抖 Hook ----
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
+// ---- 乐观更新 Hook ----
+function useOptimisticUpdate<T>(
+  initialValue: T,
+  onUpdate: (newValue: T) => Promise<boolean>
+) {
+  const [value, setValue] = useState(initialValue);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState(false);
+
+  const update = useCallback(async (newValue: T) => {
+    const previousValue = value;
+    setValue(newValue);
+    setPending(true);
+    setError(false);
+
+    try {
+      const success = await onUpdate(newValue);
+      if (!success) {
+        setValue(previousValue);
+        setError(true);
+        return false;
+      }
+      return true;
+    } catch {
+      setValue(previousValue);
+      setError(true);
+      return false;
+    } finally {
+      setPending(false);
+    }
+  }, [value, onUpdate]);
+
+  return { value, setValue, update, pending, error };
+}
+
 type ViewMode = 'grid' | 'list';
 type SortKey = 'addedDate' | 'year' | 'citationCount' | 'title';
 type SortDir = 'asc' | 'desc';
 
 export default function LibraryPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
-  const [sortKey, setSortKey] = useState<SortKey>('addedDate');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // URL同步状态 - 从URL读取初始值
+  const [searchInput, setSearchInput] = useState(searchParams.get('q') || '');
+  const [selectedTag, setSelectedTag] = useState<string | null>(searchParams.get('tag'));
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    (searchParams.get('view') as ViewMode) || 'grid'
+  );
+  const [sortKey, setSortKey] = useState<SortKey>(
+    (searchParams.get('sort') as SortKey) || 'addedDate'
+  );
+  const [sortDir, setSortDir] = useState<SortDir>(
+    (searchParams.get('dir') as SortDir) || 'desc'
+  );
   const [showFilters, setShowFilters] = useState(false);
-  const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [onlyFavorites, setOnlyFavorites] = useState(
+    searchParams.get('fav') === '1'
+  );
+
+  // 防抖搜索（300ms）
+  const debouncedSearch = useDebounce(searchInput, 300);
+
+  // 更新URL参数
+  const updateUrl = useCallback((
+    updates: Record<string, string | null>
+  ) => {
+    const newParams = new URLSearchParams(searchParams);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null || value === '' || value === '0') {
+        newParams.delete(key);
+      } else {
+        newParams.set(key, value);
+      }
+    }
+    setSearchParams(newParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  // 搜索变化时更新URL
+  useEffect(() => {
+    updateUrl({ q: debouncedSearch || null });
+  }, [debouncedSearch, updateUrl]);
+
+  // 标签变化时更新URL
+  const handleTagSelect = (tag: string | null) => {
+    setSelectedTag(tag);
+    updateUrl({ tag });
+  };
+
+  // 收藏变化时更新URL
+  const handleFavoritesChange = (checked: boolean) => {
+    setOnlyFavorites(checked);
+    updateUrl({ fav: checked ? '1' : null });
+  };
+
+  // 排序变化时更新URL
+  const handleSortChange = (key: SortKey) => {
+    setSortKey(key);
+    setSortDir('desc');
+    updateUrl({ sort: key, dir: 'desc' });
+  };
+
+  // 视图变化时更新URL
+  const handleViewChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    updateUrl({ view: mode });
+  };
 
   // Load papers from API on mount
   useEffect(() => {
@@ -56,6 +162,44 @@ export default function LibraryPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // 刷新数据
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await api.getPapers({ pageSize: 200 });
+      if (res.success && res.data) {
+        setPapers(res.data);
+        toast.success('文献库已刷新');
+      }
+    } catch {
+      toast.error('刷新失败');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  // 收藏切换（乐观更新）
+  const handleToggleFavorite = useCallback(async (paperId: string, currentState: boolean) => {
+    // 乐观更新：立即更新UI
+    setPapers(prev =>
+      prev.map(p =>
+        p.id === paperId ? { ...p, isFavorited: !currentState } : p
+      )
+    );
+
+    try {
+      await api.toggleFavorite(paperId);
+    } catch {
+      // 失败时回滚
+      setPapers(prev =>
+        prev.map(p =>
+          p.id === paperId ? { ...p, isFavorited: currentState } : p
+        )
+      );
+      toast.error('操作失败');
+    }
+  }, []);
+
   // All unique tags from loaded papers
   const allTags = useMemo(
     () => Array.from(new Set(papers.flatMap((p) => p.tags))).sort(),
@@ -66,8 +210,8 @@ export default function LibraryPage() {
   const filtered = useMemo(() => {
     let result = [...papers];
 
-    if (search) {
-      const q = search.toLowerCase();
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
       result = result.filter(
         (p) =>
           p.title.toLowerCase().includes(q) ||
@@ -106,13 +250,12 @@ export default function LibraryPage() {
     });
 
     return result;
-  }, [papers, search, selectedTag, onlyFavorites, sortKey, sortDir]);
+  }, [papers, debouncedSearch, selectedTag, onlyFavorites, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else {
-      setSortKey(key);
-      setSortDir('desc');
+      handleSortChange(key);
     }
   };
 
@@ -158,7 +301,7 @@ export default function LibraryPage() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold tracking-tight">文献库</h1>
             <p className="text-sm text-muted-foreground">
               共 {papers.length} 篇文献 · 已筛选 {filtered.length} 篇
@@ -166,16 +309,26 @@ export default function LibraryPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+              刷新
+            </Button>
+            <Button
               variant={viewMode === 'grid' ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setViewMode('grid')}
+              onClick={() => handleViewChange('grid')}
             >
               <Grid3X3 className="h-4 w-4" />
             </Button>
             <Button
               variant={viewMode === 'list' ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setViewMode('list')}
+              onClick={() => handleViewChange('list')}
             >
               <List className="h-4 w-4" />
             </Button>
@@ -188,13 +341,13 @@ export default function LibraryPage() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜索标题、作者、关键词、会议..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-10"
             />
-            {search && (
+            {searchInput && (
               <button
-                onClick={() => setSearch('')}
+                onClick={() => setSearchInput('')}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
                 <X className="h-4 w-4" />
@@ -231,16 +384,16 @@ export default function LibraryPage() {
                 <CardContent className="pt-5 space-y-4">
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <Tag className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">标签筛选</span>
-                      {selectedTag && (
-                        <button
-                          onClick={() => setSelectedTag(null)}
-                          className="text-xs text-primary hover:underline"
-                        >
-                          清除
-                        </button>
-                      )}
+                        <Tag className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">标签筛选</span>
+                        {selectedTag && (
+                          <button
+                            onClick={() => handleTagSelect(null)}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            清除
+                          </button>
+                        )}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {allTags.map((tag) => (
@@ -248,9 +401,7 @@ export default function LibraryPage() {
                           key={tag}
                           variant={selectedTag === tag ? 'default' : 'outline'}
                           className="cursor-pointer select-none"
-                          onClick={() =>
-                            setSelectedTag(selectedTag === tag ? null : tag)
-                          }
+                          onClick={() => handleTagSelect(selectedTag === tag ? null : tag)}
                         >
                           {tag}
                         </Badge>
@@ -273,7 +424,7 @@ export default function LibraryPage() {
                           key={key}
                           variant={sortKey === key ? 'default' : 'outline'}
                           className="cursor-pointer select-none"
-                          onClick={() => toggleSort(key)}
+                          onClick={() => handleSortChange(key)}
                         >
                           {label}
                           {sortKey === key &&
@@ -288,7 +439,7 @@ export default function LibraryPage() {
                       <input
                         type="checkbox"
                         checked={onlyFavorites}
-                        onChange={(e) => setOnlyFavorites(e.target.checked)}
+                        onChange={(e) => handleFavoritesChange(e.target.checked)}
                         className="mr-2"
                       />
                       仅显示收藏
@@ -306,13 +457,13 @@ export default function LibraryPage() {
             icon={<BookOpen className="h-8 w-8" />}
             title="没有找到匹配的文献"
             description={
-              search
-                ? `未找到与「${search}」匹配的文献，请尝试其他关键词。`
+              searchInput
+                ? `未找到与「${searchInput}」匹配的文献，请尝试其他关键词。`
                 : '当前筛选条件下没有文献，请调整筛选条件。'
             }
             action={
-              search ? (
-                <Button variant="outline" onClick={() => setSearch('')}>
+              searchInput ? (
+                <Button variant="outline" onClick={() => setSearchInput('')}>
                   清除搜索
                 </Button>
               ) : undefined
@@ -328,7 +479,7 @@ export default function LibraryPage() {
                 transition={{ delay: i * 0.04 }}
               >
                 <Link to={`/paper/${paper.id}`}>
-                  <PaperCard paper={paper} />
+                  <PaperCard paper={paper} onToggleFavorite={handleToggleFavorite} />
                 </Link>
               </motion.div>
             ))}
@@ -343,7 +494,7 @@ export default function LibraryPage() {
                 transition={{ delay: i * 0.03 }}
               >
                 <Link to={`/paper/${paper.id}`}>
-                  <PaperListItem paper={paper} />
+                  <PaperListItem paper={paper} onToggleFavorite={handleToggleFavorite} />
                 </Link>
               </motion.div>
             ))}
@@ -355,7 +506,7 @@ export default function LibraryPage() {
 }
 
 // ---------- Grid Card ----------
-function PaperCard({ paper }: { paper: Paper }) {
+function PaperCard({ paper, onToggleFavorite }: { paper: Paper; onToggleFavorite: (id: string, current: boolean) => void }) {
   return (
     <Card className="group h-full transition-all hover:shadow-card-hover cursor-pointer">
       <CardContent className="pt-5 pb-4 flex flex-col h-full">
@@ -366,9 +517,15 @@ function PaperCard({ paper }: { paper: Paper }) {
               {t}
             </Badge>
           ))}
-          {paper.isFavorited && (
-            <Star className="h-3 w-3 fill-amber-400 text-amber-400 ml-auto" />
-          )}
+          <button
+            onClick={(e) => { e.preventDefault(); onToggleFavorite(paper.id, paper.isFavorited); }}
+            className="ml-auto hover:scale-110 transition-transform"
+          >
+            <Star className={cn(
+              'h-3 w-3',
+              paper.isFavorited ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'
+            )} />
+          </button>
         </div>
 
         {/* Title */}
@@ -401,7 +558,7 @@ function PaperCard({ paper }: { paper: Paper }) {
 }
 
 // ---------- List Item ----------
-function PaperListItem({ paper }: { paper: Paper }) {
+function PaperListItem({ paper, onToggleFavorite }: { paper: Paper; onToggleFavorite: (id: string, current: boolean) => void }) {
   return (
     <div className="flex items-start gap-4 rounded-lg border p-4 transition-all hover:shadow-card hover:border-primary/30">
       <div className="mt-0.5 hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -412,9 +569,15 @@ function PaperListItem({ paper }: { paper: Paper }) {
           <h3 className="line-clamp-1 text-sm font-semibold group-hover:text-primary transition-colors flex-1">
             {paper.title}
           </h3>
-          {paper.isFavorited && (
-            <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
-          )}
+          <button
+            onClick={(e) => { e.preventDefault(); onToggleFavorite(paper.id, paper.isFavorited); }}
+            className="shrink-0 hover:scale-110 transition-transform"
+          >
+            <Star className={cn(
+              'h-3.5 w-3.5',
+              paper.isFavorited ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'
+            )} />
+          </button>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {paper.authors.slice(0, 3).join(', ')}

@@ -1,6 +1,6 @@
 // ========================================
-// AIChatPage — AI 学术对话助手 (已迁移到 API)
-// 支持：多轮对话、SSE流式、Joan人格、学术场景
+// AIChatPage — AI 学术对话助手 (增强版)
+// 功能：输入框自动增高、代码块复制、消息动画
 // ========================================
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
@@ -26,6 +26,32 @@ const QUICK_PROMPTS = [
   '推荐几篇 HGNN 在欺诈检测中的应用论文',
 ];
 
+// ---- 代码块复制按钮 ----
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    toast.success('代码已复制');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute top-2 right-2 p-1.5 rounded-md bg-muted/80 hover:bg-muted transition-colors"
+      title="复制代码"
+    >
+      {copied ? (
+        <CheckCheck className="h-3.5 w-3.5 text-green-500" />
+      ) : (
+        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+      )}
+    </button>
+  );
+}
+
 export default function AIChatPage() {
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
@@ -36,6 +62,16 @@ export default function AIChatPage() {
   const [showQuickPrompts, setShowQuickPrompts] = useState(true);
   const [loadingConv, setLoadingConv] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 输入框自动增高
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
+    }
+  }, [input]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

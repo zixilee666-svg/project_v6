@@ -38,7 +38,8 @@ export default function LoginPage() {
         useAuthStore.getState().setToken(res.data.token)
         setJustLoggedIn(true)
       } else {
-        setError(res.error || '登录失败')
+        // TypeScript无法自动收窄ApiResponse联合类型，使用'in'检查错误属性
+        setError('error' in res && res.error ? res.error : '登录失败')
       }
     } catch (err: any) {
       setError(err.message || '登录失败，请重试')

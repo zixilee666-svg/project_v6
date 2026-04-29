@@ -7,7 +7,105 @@
 
 import type { Paper, User, Project, Note, Highlight, ReadingRecord, ReadingStats, AIConversation, UserSettings, Library, Material } from '@/types';
 
+// ---- API 错误类 ----
+export class ApiError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+    public statusCode?: number
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+// ---- 错误代码枚举 ----
+export const ApiErrorCode = {
+  NETWORK_ERROR: 'NETWORK_ERROR',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  NOT_FOUND: 'NOT_FOUND',
+  SERVER_ERROR: 'SERVER_ERROR',
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  TIMEOUT: 'TIMEOUT',
+  UNKNOWN: 'UNKNOWN',
+} as const;
+
+// ---- API 响应类型 ----
+export type ApiResponse<T = unknown> =
+  | { success: true; data: T }
+  | { success: false; error: string; code?: string };
+
+// ---- 错误处理工具函数 ----
+export function handleApiError(error: unknown): ApiError {
+  if (error instanceof ApiError) {
+    return error;
+  }
+  if (error instanceof TypeError && error.message.includes('fetch')) {
+    return new ApiError(ApiErrorCode.NETWORK_ERROR, '网络连接失败，请检查网络');
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return new ApiError(ApiErrorCode.TIMEOUT, '请求超时，请重试');
+  }
+  if (error instanceof Error) {
+    return new ApiError(ApiErrorCode.UNKNOWN, error.message);
+  }
+  return new ApiError(ApiErrorCode.UNKNOWN, '发生未知错误');
+}
+
+// ---- 请求重试配置 ----
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
+
+async function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ---- 请求拦截器类型 ----
+type RequestInterceptor = (config: RequestConfig) => RequestConfig | Promise<RequestConfig>;
+type ResponseInterceptor = (response: Response, config: RequestConfig) => Response | Promise<Response>;
+type ErrorInterceptor = (error: ApiError, config: RequestConfig) => ApiError | Promise<ApiError>;
+
+interface RequestConfig {
+  path: string;
+  method: string;
+  headers?: Record<string, string>;
+  body?: string;
+  retries?: number;
+  signal?: AbortSignal;
+}
+
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
+// ---- 拦截器注册表 ----
+const requestInterceptors: RequestInterceptor[] = [];
+const responseInterceptors: ResponseInterceptor[] = [];
+const errorInterceptors: ErrorInterceptor[] = [];
+
+// ---- 拦截器注册函数 ----
+export function addRequestInterceptor(interceptor: RequestInterceptor): () => void {
+  requestInterceptors.push(interceptor);
+  return () => {
+    const index = requestInterceptors.indexOf(interceptor);
+    if (index > -1) requestInterceptors.splice(index, 1);
+  };
+}
+
+export function addResponseInterceptor(interceptor: ResponseInterceptor): () => void {
+  responseInterceptors.push(interceptor);
+  return () => {
+    const index = responseInterceptors.indexOf(interceptor);
+    if (index > -1) responseInterceptors.splice(index, 1);
+  };
+}
+
+export function addErrorInterceptor(interceptor: ErrorInterceptor): () => void {
+  errorInterceptors.push(interceptor);
+  return () => {
+    const index = errorInterceptors.indexOf(interceptor);
+    if (index > -1) errorInterceptors.splice(index, 1);
+  };
+}
 
 // 构建时确定：是否使用 Mock（默认 true）
 // 当部署到 EdgeOne 等纯前端环境时，VITE_MOCK_MODE 未设置 → 默认 Mock
@@ -762,48 +860,148 @@ class ApiClient {
     }
   }
 
-  /** 主请求方法：同步判断 Mock 或真实 API */
+  /** 主请求方法：同步判断 Mock 或真实 API，支持重试和拦截器 */
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    // 同步判断，无网络探测，零竞态
-    if (IS_MOCK) {
-      return this.mockRequest<T>(path, options);
+    // 准备请求配置
+    const config: RequestConfig = {
+      path,
+      method: (options.method || 'GET').toUpperCase(),
+      headers: (options.headers as Record<string, string>) || {},
+      body: options.body as string,
+    };
+
+    // 应用请求拦截器
+    for (const interceptor of requestInterceptors) {
+      config.headers = { ...config.headers, ...(await interceptor(config)).headers };
     }
 
-    // 真实 API 请求
+    // Mock 模式处理
+    if (IS_MOCK) {
+      return this.mockRequest<T>(config);
+    }
+
+    // 真实 API 请求（带重试机制）
+    return this.realRequest<T>(config, options);
+  }
+
+  /** 真实 API 请求（带重试机制） */
+  private async realRequest<T>(
+    config: RequestConfig,
+    options: RequestInit,
+    attempt = 0
+  ): Promise<T> {
     const token = this.getToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
+      ...config.headers,
     };
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...options,
-      headers,
-    });
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `Request failed: ${response.status}`);
+      const response = await fetch(`${this.baseUrl}${config.path}`, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // 应用响应拦截器
+      let processedResponse = response;
+      for (const interceptor of responseInterceptors) {
+        processedResponse = await interceptor(processedResponse, config);
+      }
+
+      // 错误处理
+      if (!response.ok) {
+        let errorMessage = response.statusText;
+        let errorCode: string = ApiErrorCode.UNKNOWN;
+
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+          errorCode = errorData.code || ApiErrorCode.UNKNOWN;
+        } catch { /* ignore parse error */ }
+
+        // 根据状态码确定错误类型
+        if (response.status === 401) {
+          errorCode = ApiErrorCode.UNAUTHORIZED;
+        } else if (response.status === 403) {
+          errorCode = ApiErrorCode.FORBIDDEN;
+        } else if (response.status === 404) {
+          errorCode = ApiErrorCode.NOT_FOUND;
+        } else if (response.status >= 500) {
+          errorCode = ApiErrorCode.SERVER_ERROR;
+        }
+
+        const apiError = new ApiError(errorCode, errorMessage, response.status);
+
+        // 应用错误拦截器
+        let finalError = apiError;
+        for (const interceptor of errorInterceptors) {
+          finalError = await interceptor(finalError, config);
+        }
+
+        throw finalError;
+      }
+
+      const data = await processedResponse.json();
+
+      // 处理成功但业务逻辑错误的情况
+      if (data && typeof data === 'object' && 'success' in data && data.success === false) {
+        const apiError = new ApiError(
+          data.code || ApiErrorCode.UNKNOWN,
+          data.error || data.message || '请求失败',
+          response.status
+        );
+        throw apiError;
+      }
+
+      return data as T;
+    } catch (error) {
+      // 如果是可重试的错误且未超过最大重试次数
+      if (
+        attempt < MAX_RETRIES &&
+        error instanceof ApiError &&
+        (error.code === ApiErrorCode.NETWORK_ERROR ||
+          error.code === ApiErrorCode.SERVER_ERROR ||
+          error.code === ApiErrorCode.TIMEOUT)
+      ) {
+        console.log(`[API] 请求失败，${RETRY_DELAY * (attempt + 1)}ms 后重试 (${attempt + 1}/${MAX_RETRIES})`);
+        await delay(RETRY_DELAY * (attempt + 1)); // 指数退避
+        return this.realRequest<T>(config, options, attempt + 1);
+      }
+
+      // 应用错误拦截器
+      if (error instanceof ApiError) {
+        let finalError = error;
+        for (const interceptor of errorInterceptors) {
+          finalError = await interceptor(finalError, config);
+        }
+        throw finalError;
+      }
+
+      // 未知错误转换为 ApiError
+      throw handleApiError(error);
     }
-
-    return response.json();
   }
 
   /** Mock 请求：纯本地处理，无网络 IO */
-  private async mockRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async mockRequest<T>(config: RequestConfig): Promise<T> {
     await mockDelay(100 + Math.random() * 150);
-    const method = (options.method || 'GET').toUpperCase();
     let body: any = undefined;
-    if (options.body && typeof options.body === 'string') {
-      try { body = JSON.parse(options.body); } catch { /* ignore */ }
+    if (config.body && typeof config.body === 'string') {
+      try { body = JSON.parse(config.body); } catch { /* ignore */ }
     }
     try {
-      return handleMockRequest(path, method, body) as T;
+      return handleMockRequest(config.path, config.method, body) as T;
     } catch (err: any) {
-      throw new Error(err.message || 'Mock request failed');
+      throw new ApiError(ApiErrorCode.UNKNOWN, err.message || 'Mock request failed');
     }
   }
 
@@ -814,14 +1012,14 @@ class ApiClient {
 
   // ---- Auth ----
   async login(username: string, password: string) {
-    return this.request<{ success: boolean; data: { token: string; user: User } }>(
+    return this.request<ApiResponse<{ token: string; user: User }>>(
       '/auth/login',
       { method: 'POST', body: JSON.stringify({ username, password }) }
     );
   }
 
   async register(data: { username: string; password: string; institution?: string }) {
-    return this.request<{ success: boolean; data: { token: string; user: User } }>(
+    return this.request<ApiResponse<{ token: string; user: User }>>(
       '/auth/register',
       { method: 'POST', body: JSON.stringify(data) }
     );
@@ -1122,7 +1320,7 @@ class ApiClient {
   }
 
   async updateUser(userId: string, data: Partial<{ role: string; isActive: boolean; displayName: string }>) {
-    return this.request(`/admin/users/${userId}`, {
+    return this.request<ApiResponse<User>>(`/admin/users/${userId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });

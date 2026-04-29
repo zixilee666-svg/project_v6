@@ -1,10 +1,11 @@
 // ========================================
-// DashboardPage — 主页仪表盘 (API 集成版)
+// DashboardPage — 主页仪表盘 (API 集成版 + 增强交互)
 // ========================================
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   BookOpen, Star, Clock, Trophy, Flame, TrendingUp, FileText, FolderOpen,
+  RefreshCw, ArrowRight,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -13,29 +14,62 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import AnimatedPage from '@/components/shared/AnimatedPage';
+import { AnimatedCounter, formatNumber } from '@/components/shared/AnimatedCounter';
 import JoanQuote from '@/components/shared/JoanQuote';
 import { api } from '@/lib/api';
 import type { Paper, Project, ReadingStats } from '@/types';
 import { cn } from '@/lib/utils';
 
 // ---------- 统计卡片 ----------
-function StatCard({ icon: Icon, label, value, sub, color }: {
-  icon: React.ElementType; label: string; value: string | number;
-  sub?: string; color: string;
+function StatCard({
+  icon: Icon, label, value, sub, color, link, animationDelay = 0
+}: {
+  icon: React.ElementType; label: string; value: number;
+  sub?: string; color: string; link?: string; animationDelay?: number;
 }) {
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    if (link) {
+      navigate(link);
+    }
+  };
+
   return (
-    <motion.div whileHover={{ y: -2 }} transition={{ type: 'spring', stiffness: 300 }}>
-      <Card className="h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: animationDelay, duration: 0.3 }}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={handleClick}
+      className={cn(link && 'cursor-pointer')}
+    >
+      <Card className={cn(
+        'h-full transition-all',
+        link && 'hover:shadow-md hover:border-primary/30'
+      )}>
         <CardContent className="flex items-center gap-4 pt-6">
           <div className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-xl', color)}>
             <Icon className="h-6 w-6 text-white" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-sm text-muted-foreground">{label}</p>
-            <p className="text-2xl font-bold tracking-tight">{value}</p>
-            {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+            <div className="flex items-baseline gap-1">
+              <AnimatedCounter
+                value={value}
+                duration={1.2}
+                formatter={(v) => formatNumber(Math.round(v))}
+                className="text-2xl font-bold tracking-tight"
+              />
+              {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
+            </div>
           </div>
+          {link && (
+            <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
         </CardContent>
       </Card>
     </motion.div>
@@ -54,34 +88,61 @@ function ReadingHeatmap({ data }: { data: number[] }) {
     return 'bg-primary/90';
   };
 
+  // 计算日期（近90天）
+  const today = new Date();
+  const getDateForIndex = (idx: number) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (data.length - 1 - idx));
+    return date;
+  };
+
   return (
-    <div className="flex gap-1">
-      <div className="flex flex-col gap-1 pt-0.5 text-[10px] text-muted-foreground">
-        {days.map((d) => (
-          <div key={d} className="h-3 w-4 leading-[12px]">{d}</div>
-        ))}
+    <TooltipProvider delayDuration={100}>
+      <div className="flex gap-1">
+        <div className="flex flex-col gap-1 pt-0.5 text-[10px] text-muted-foreground">
+          {days.map((d) => (
+            <div key={d} className="h-3 w-4 leading-[12px]">{d}</div>
+          ))}
+        </div>
+        <div className="flex gap-1 overflow-x-auto">
+          {Array.from({ length: weeks }).map((_, w) => (
+            <div key={w} className="flex flex-col gap-1">
+              {Array.from({ length: 7 }).map((_, d) => {
+                const idx = w * 7 + d;
+                const v = idx < data.length ? data[idx] : 0;
+                const date = getDateForIndex(idx);
+                const dateStr = date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+
+                return (
+                  <Tooltip key={d}>
+                    <TooltipTrigger asChild>
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ delay: idx * 0.003 }}
+                        className={cn(
+                          'h-3 w-3 rounded-sm transition-all cursor-default',
+                          getColor(v),
+                          v > 0 && 'hover:ring-2 hover:ring-primary/50'
+                        )}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      <div className="text-center">
+                        <div className="font-medium">{dateStr}</div>
+                        <div className="text-muted-foreground">
+                          {v === 0 ? '无阅读' : `${v} 篇论文`}
+                        </div>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="flex gap-1 overflow-x-auto">
-        {Array.from({ length: weeks }).map((_, w) => (
-          <div key={w} className="flex flex-col gap-1">
-            {Array.from({ length: 7 }).map((_, d) => {
-              const idx = w * 7 + d;
-              const v = idx < data.length ? data[idx] : 0;
-              return (
-                <motion.div
-                  key={d}
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: idx * 0.003 }}
-                  className={cn('h-3 w-3 rounded-sm transition-colors', getColor(v))}
-                  title={`${v} 篇`}
-                />
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
+    </TooltipProvider>
   );
 }
 
@@ -242,12 +303,13 @@ function DashboardSkeleton() {
 // ========== 主页面 ==========
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState<ReadingStats | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    if (!refreshing) setLoading(true);
     try {
       // 并行加载所有数据
       const [statsRes, papersRes, projectsRes] = await Promise.all([
@@ -272,11 +334,19 @@ export default function DashboardPage() {
       toast.error('加载数据失败，请刷新重试');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [refreshing]);
 
   useEffect(() => {
     loadData();
+  }, [loadData]);
+
+  // 刷新数据
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    toast.success('数据已刷新');
   }, [loadData]);
 
   // 计算衍生数据
@@ -310,10 +380,25 @@ export default function DashboardPage() {
       <div className="space-y-6">
         {/* 顶部欢迎 + 语录 */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              欢迎回来，研究者 ⚖️
-            </h1>
+          <div className="flex-1">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">
+                欢迎回来，研究者 ⚖️
+              </h1>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="p-2 rounded-full hover:bg-accent transition-colors"
+                title="刷新数据"
+              >
+                <RefreshCw className={cn(
+                  'h-4 w-4 text-muted-foreground',
+                  refreshing && 'animate-spin'
+                )} />
+              </motion.button>
+            </div>
             <p className="mt-1 text-sm text-muted-foreground">
               以圣洁纯粹之心，行理性严谨之事
             </p>
@@ -326,23 +411,31 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <StatCard
               icon={BookOpen} label="文献总量" value={stats.totalPapers}
-              sub={`本周 +${stats.weeklyRead}`} color="bg-primary"
+              sub="篇" color="bg-primary"
+              link="/dashboard/library"
+              animationDelay={0}
             />
             <StatCard
               icon={TrendingUp} label="本周阅读" value={stats.weeklyRead}
-              sub="篇文献" color="bg-emerald-500"
+              sub="篇" color="bg-emerald-500"
+              link="/dashboard/library"
+              animationDelay={0.05}
             />
             <StatCard
               icon={Star} label="收藏文献" value={favorites.length}
-              sub={allTags.length + ' 个标签'} color="bg-amber-500"
+              sub="篇" color="bg-amber-500"
+              link="/dashboard/library"
+              animationDelay={0.1}
             />
             <StatCard
               icon={Flame} label="连续天数" value={stats.streakDays}
-              sub="保持阅读习惯" color="bg-orange-500"
+              sub="天" color="bg-orange-500"
+              animationDelay={0.15}
             />
             <StatCard
               icon={Trophy} label="学术积分" value={stats.points}
-              sub="持续积累" color="bg-accent"
+              sub="分" color="bg-accent"
+              animationDelay={0.2}
             />
           </div>
         )}
