@@ -4,20 +4,43 @@
  */
 const AI_API_KEY = EdgeOne.env.get('AI_API_KEY') || '';
 const AI_API_URL = EdgeOne.env.get('AI_API_URL') || 'https://api.openai.com/v1/chat/completions';
+const JWT_SECRET = EdgeOne.env.get('JWT_SECRET') || 'academic-hub-default-secret-key-2026';
 
-// JWT 验证 (复用 Edge Functions 的 JWT 逻辑)
+// JWT 验证
 function extractToken(request) {
   const authHeader = request.headers.get('Authorization') || '';
   if (authHeader.startsWith('Bearer ')) return authHeader.slice(7);
   return null;
 }
 
-// 简单 JWT payload 解析（不验证签名，Cloud Functions 环境已由 Edge Functions 网关处理认证）
-function parseJwtPayload(token) {
+// JWT 签名验证
+async function verifyJwtSignature(token) {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
+
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(JWT_SECRET);
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw', keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false, ['sign', 'verify']
+    );
+
+    const signatureInput = `${parts[0]}.${parts[1]}`;
+    const signature = parts[2].replace(/-/g, '+').replace(/_/g, '/');
+    while (signature.length % 4) signature += '=';
+
+    const sigBuffer = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
+    const dataBuffer = encoder.encode(signatureInput);
+
+    const isValid = await crypto.subtle.verify('HMAC', cryptoKey, sigBuffer, dataBuffer);
+    if (!isValid) return null;
+
+    // 检查过期时间
     const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+
     return payload;
   } catch {
     return null;
@@ -41,24 +64,24 @@ export default {
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
-    // JWT 认证检查
+    // JWT 认证检查（完整签名验证）
     const token = extractToken(request);
     if (!token) {
       return new Response(JSON.stringify({ error: 'Authentication required' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
-    const payload = parseJwtPayload(token);
+    const payload = await verifyJwtSignature(token);
     if (!payload || !payload.userId) {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+      return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
@@ -146,7 +169,7 @@ export default {
         console.error('[AI/Chat] API Error:', error);
         return new Response(JSON.stringify({ error: 'AI service error' }), {
           status: 500,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
         });
       }
 
@@ -206,7 +229,7 @@ export default {
       console.error('[AI/Chat] Error:', e);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
   }

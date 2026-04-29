@@ -2,44 +2,53 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Scale, Eye, EyeOff, ArrowRight, LogIn } from 'lucide-react'
-import { useAuth } from '@/context/AuthContext'
+import { useAuthStore } from '@/store/authStore'
+import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function LoginPage() {
-  const { login, isLoading, isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuthStore()
   const navigate = useNavigate()
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('123456')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const [justLoggedIn, setJustLoggedIn] = useState(false)
 
   // 已登录 → 跳转首页
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/', { replace: true })
+    if (isAuthenticated && user) {
+      navigate('/dashboard', { replace: true })
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, user, navigate])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setIsLoading(true)
 
-    const result = await login(username, password)
-    if (result.success) {
-      setJustLoggedIn(true)
-      // dispatch 已经完成，isAuthenticated 现在为 true
-      // useEffect 会在下一次渲染时触发 navigate
-    } else {
-      setError(result.error || '登录失败，请重试')
+    try {
+      const res = await api.login(username, password)
+      if (res.success && res.data) {
+        useAuthStore.getState().setUser(res.data.user)
+        useAuthStore.getState().setToken(res.data.token)
+        setJustLoggedIn(true)
+      } else {
+        setError(res.error || '登录失败')
+      }
+    } catch (err: any) {
+      setError(err.message || '登录失败，请重试')
+    } finally {
+      setIsLoading(false)
     }
   }
 
   // 登录中或已登录则不渲染表单
-  if (isAuthenticated) {
+  if (isAuthenticated && user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-ivory-100 dark:bg-primary-900">
         <div className="text-center">

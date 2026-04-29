@@ -3,29 +3,14 @@
  * POST /api/auth/register
  */
 import { createToken } from '../../lib/jwt.js';
-import { kvGet, kvSet, kvGetJson } from '../../lib/kv.js';
-import { success, error, parseJsonBody } from '../../lib/cors.js';
-
-// SHA-256 密码哈希
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + ':joan_academic_salt_2026');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
+import { kvGet, kvSet, kvGetJson, kvListAdd } from '../../lib/kv.js';
+import { success, error, parseJsonBody, handleCors } from '../../lib/cors.js';
+import { hashPassword } from '../../lib/crypto.js';
 
 export default {
   async fetch(request) {
     if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 200,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      });
+      return handleCors(request);
     }
 
     if (request.method !== 'POST') {
@@ -72,9 +57,9 @@ export default {
         createdAt: now
       };
 
-      // 存储用户（密码使用 SHA-256 哈希）
-      const passwordHash = await hashPassword(password);
-      const userWithPassword = { ...user, passwordHash };
+      // 存储用户（密码使用 PBKDF2 哈希）
+      const { hash, salt, iterations } = await hashPassword(password);
+      const userWithPassword = { ...user, passwordHash: hash, passwordSalt: salt, passwordIterations: iterations };
       await kvSet(`users:${userId}`, userWithPassword);
       
       // 建立用户名索引

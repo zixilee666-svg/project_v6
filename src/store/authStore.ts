@@ -14,6 +14,29 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
 }
 
+// Helper: parse stored user from various localStorage formats
+function parseStoredUser(raw: string): User | null {
+  try {
+    const parsed = JSON.parse(raw);
+    const user = parsed?.state?.user || parsed?.user || parsed;
+    if (user && typeof user === 'object' && user.username) return user as User;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Helper: parse stored token from various localStorage formats
+function parseStoredToken(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.state?.token || null;
+  } catch {
+    return raw;
+  }
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -25,13 +48,15 @@ export const useAuthStore = create<AuthState>()(
       setToken: (token) =>
         set((state) => ({
           token,
-          isAuthenticated: !!token,
+          isAuthenticated: !!(state.user || token),
+          isLoading: false,
         })),
 
       setUser: (user) =>
         set((state) => ({
           user,
-          isAuthenticated: !!user,
+          isAuthenticated: !!(user || state.token),
+          isLoading: false,
         })),
 
       logout: () =>
@@ -52,7 +77,24 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'joan_auth_token',
-      partialize: (state) => ({ token: state.token }),
+      partialize: (state) => ({ token: state.token, user: state.user }),
+      onRehydrateStorage: () => (state) => {
+        // After rehydration, sync derived fields
+        if (state) {
+          state.isLoading = false;
+          state.isAuthenticated = !!(state.token);
+          // Also try to get user from joan_academic_user if not in our own storage
+          if (!state.user) {
+            try {
+              const raw = localStorage.getItem('joan_academic_user');
+              if (raw) {
+                state.user = parseStoredUser(raw);
+                if (state.user) state.isAuthenticated = true;
+              }
+            } catch { /* ignore */ }
+          }
+        }
+      },
     }
   )
 );

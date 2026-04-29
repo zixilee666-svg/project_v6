@@ -34,3 +34,9 @@ npm-debug.log*
 # Playwright
 test-results/
 playwright-report/
+
+# WorkBuddy
+.workbuddy/
+
+# Misc
+nul

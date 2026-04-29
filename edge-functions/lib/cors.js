@@ -108,4 +108,19 @@ export function withCors(response, request) {
   });
 }
 
-export default { json, success, error, unauthorized, forbidden, notFound, serverError, parseJsonBody, withCors };
+export default { json, success, error, unauthorized, forbidden, notFound, serverError, parseJsonBody, withCors, handleCors };
+
+/**
+ * 统一 CORS 预检请求处理
+ */
+export function handleCors(request) {
+  return new Response(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': getCorsOrigin(request),
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
+    }
+  });
+}

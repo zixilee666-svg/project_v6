@@ -6,7 +6,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Star, ExternalLink, Quote, BookmarkPlus,
   BookOpen, MessageSquare, Highlighter, Calendar, Hash,
-  FileText, Users, Building2, Tag, Clock,
+  FileText, Users, Building2, Tag, Clock, Trash2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -99,10 +99,10 @@ export default function PaperDetailPage() {
 
         // Related papers: tag matching
         if (allPapersRes.success && allPapersRes.data) {
-          const currentTags = new Set(paperRes.data.tags);
+          const currentTags = new Set(paperRes.data.tags || []);
           setRelatedPapers(
             allPapersRes.data
-              .filter((p) => p.id !== paperRes.data!.id && p.tags.some((t) => currentTags.has(t)))
+              .filter((p) => p.id !== paperRes.data!.id && (p.tags || []).some((t) => currentTags.has(t)))
               .slice(0, 6)
           );
         }
@@ -159,6 +159,17 @@ export default function PaperDetailPage() {
       toast.error('保存失败，请重试');
     } finally {
       setNoteSaving(false);
+    }
+  };
+
+  const deleteNote = async (noteId: string) => {
+    if (!id) return;
+    try {
+      await api.deleteNote(id, noteId);
+      setSavedNotes((prev) => prev.filter(n => n.id !== noteId));
+      toast.success('笔记已删除');
+    } catch {
+      toast.error('删除失败，请重试');
     }
   };
 
@@ -281,7 +292,7 @@ export default function PaperDetailPage() {
         {/* Header */}
         <div>
           <div className="flex flex-wrap gap-2 mb-3">
-            {paper.tags.map((t) => (
+            {(paper.tags || []).map((t) => (
               <Badge key={t} variant="secondary">
                 {t}
               </Badge>
@@ -291,10 +302,10 @@ export default function PaperDetailPage() {
             {paper.title}
           </h1>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Users className="h-4 w-4" />
-              {paper.authors.join(', ')}
-            </span>
+              <span className="flex items-center gap-1">
+                <Users className="h-4 w-4" />
+                {(paper.authors || []).join(', ')}
+              </span>
             <span className="flex items-center gap-1">
               <Building2 className="h-4 w-4" />
               {paper.venue}
@@ -363,7 +374,7 @@ export default function PaperDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
-                  {paper.keywords.map((kw) => (
+                  {(paper.keywords || []).map((kw) => (
                     <Badge key={kw} variant="outline" className="gap-1">
                       <Hash className="h-3 w-3" />
                       {kw}
@@ -442,9 +453,19 @@ export default function PaperDetailPage() {
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">
                           {note.content}
                         </p>
-                        <p className="mt-2 text-[11px] text-muted-foreground">
-                          {formatDate(note.createdAt)}
-                        </p>
+                        <div className="mt-2 flex items-center justify-between">
+                          <p className="text-[11px] text-muted-foreground">
+                            {formatDate(note.createdAt)}
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => deleteNote(note.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </CardContent>
                     </Card>
                   </motion.div>
@@ -510,10 +531,10 @@ export default function PaperDetailPage() {
                           {rp.title}
                         </h4>
                         <p className="mt-1.5 text-xs text-muted-foreground">
-                          {rp.authors.slice(0, 2).join(', ')} · {rp.year}
+                          {(rp.authors || []).slice(0, 2).join(', ')} · {rp.year}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {rp.tags.slice(0, 2).map((t) => (
+                          {(rp.tags || []).slice(0, 2).map((t) => (
                             <Badge
                               key={t}
                               variant="secondary"

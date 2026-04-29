@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useReducer, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useEffect } from 'react';
 import type { User } from '@/types';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/store/authStore';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -12,7 +13,8 @@ interface AuthState {
 type AuthAction =
   | { type: 'LOGIN'; payload: { user: User; token: string } }
   | { type: 'LOGOUT' }
-  | { type: 'SET_LOADING'; payload: boolean };
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SYNC'; payload: Partial<AuthState> };
 
 interface AuthContextType extends AuthState {
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
@@ -24,8 +26,6 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
     case 'LOGIN':
-      localStorage.setItem('joan_auth_token', action.payload.token);
-      localStorage.setItem('joan_academic_user', JSON.stringify(action.payload.user));
       return {
         isAuthenticated: true,
         isLoading: false,
@@ -33,32 +33,48 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         token: action.payload.token,
       };
     case 'LOGOUT':
-      localStorage.removeItem('joan_auth_token');
-      localStorage.removeItem('joan_academic_user');
       return { isAuthenticated: false, isLoading: false, user: null, token: null };
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
+    case 'SYNC':
+      return { ...state, ...action.payload };
     default:
       return state;
   }
 }
 
-// 初始化：从 localStorage 恢复会话，无 token 时直接显示登录页
+// Safe localStorage reader — handles both Zustand persist and direct format
+function parseStoredUser(raw: string): User | null {
+  try {
+    const parsed = JSON.parse(raw);
+    const user = parsed?.state?.user || parsed?.user || parsed;
+    if (user && typeof user === 'object' && user.username) return user as User;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredToken(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    // Zustand persist format: { state: { token, user } }
+    return parsed?.state?.token || null;
+  } catch {
+    // Direct token string
+    return raw;
+  }
+}
+
+// 初始化：从 localStorage 恢复会话
 function getInitialState(): AuthState {
-  const token = localStorage.getItem('joan_auth_token');
-  const storedUser = localStorage.getItem('joan_academic_user');
-  if (token && storedUser) {
-    try {
-      return {
-        isAuthenticated: true,
-        isLoading: false,
-        user: JSON.parse(storedUser) as User,
-        token,
-      };
-    } catch {
-      localStorage.removeItem('joan_auth_token');
-      localStorage.removeItem('joan_academic_user');
-    }
+  const rawToken = localStorage.getItem('joan_auth_token');
+  const rawUser = localStorage.getItem('joan_academic_user');
+  const token = parseStoredToken(rawToken);
+  const user = rawUser ? parseStoredUser(rawUser) : null;
+  if (token && user) {
+    return { isAuthenticated: true, isLoading: false, user, token };
   }
   return { isAuthenticated: false, isLoading: false, user: null, token: null };
 }
@@ -66,12 +82,25 @@ function getInitialState(): AuthState {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, undefined, getInitialState);
 
-  // 登录：返回结果，不抛异常，让 LoginPage 处理跳转
+  // Sync with Zustand store changes (e.g. logout from other components)
+  const zustandUser = useAuthStore(s => s.user);
+  const zustandToken = useAuthStore(s => s.token);
+  useEffect(() => {
+    if (zustandUser && zustandToken) {
+      dispatch({ type: 'SYNC', payload: { user: zustandUser, token: zustandToken, isAuthenticated: true } });
+    } else if (!zustandToken && state.isAuthenticated) {
+      dispatch({ type: 'SYNC', payload: { user: null, token: null, isAuthenticated: false } });
+    }
+  }, [zustandUser, zustandToken]);
+
   const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const res = await api.login(username, password);
       if (res.success && res.data) {
+        // Sync to Zustand store (which handles localStorage)
+        useAuthStore.getState().setUser(res.data.user);
+        useAuthStore.getState().setToken(res.data.token);
         dispatch({ type: 'LOGIN', payload: res.data });
         return { success: true };
       }
@@ -85,6 +114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try { await api.logout(); } catch { /* ignore */ }
+    // Sync to Zustand store (which handles localStorage)
+    useAuthStore.getState().logout();
     dispatch({ type: 'LOGOUT' });
   }, []);
 

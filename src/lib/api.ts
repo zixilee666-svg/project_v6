@@ -355,14 +355,23 @@ function handleMockRequest(path: string, method: string, body?: any): any {
   }
   if (path === '/auth/me' && method === 'GET') {
     const stored = localStorage.getItem('joan_academic_user');
-    return { success: true, data: stored ? JSON.parse(stored) : mockUser };
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        const user = parsed?.state?.user || parsed?.user || parsed;
+        return { success: true, data: user };
+      } catch {
+        return { success: true, data: mockUser };
+      }
+    }
+    return { success: true, data: mockUser };
   }
   if (path === '/auth/logout' && method === 'POST') {
     return { success: true };
   }
 
-  // Papers
-  if (path.startsWith('/papers') && !path.includes('/notes') && !path.includes('/highlights') && !path.includes('/favorite') && !path.includes('/batch-import') && !path.includes('/export') && method === 'GET') {
+  // Papers — list GET (only /papers or /papers?query, NOT /papers/:id)
+  if (/^\/papers(\?|$)/.test(path) && !path.includes('/notes') && !path.includes('/highlights') && !path.includes('/favorite') && !path.includes('/batch-import') && !path.includes('/export') && method === 'GET') {
     const paramStr = path.includes('?') ? path.split('?')[1] : '';
     const params = new URLSearchParams(paramStr);
     let results = [...mockPapers];
@@ -491,6 +500,17 @@ function handleMockRequest(path: string, method: string, body?: any): any {
     };
     if (paper) { if (!paper.notes) paper.notes = []; paper.notes.push(newNote); }
     return { success: true, data: newNote };
+  }
+  // DELETE note
+  if (path.match(/^\/papers\/[^/]+\/notes\/[^/]+$/) && method === 'DELETE') {
+    const parts = path.split('/');
+    const paperId = parts[2];
+    const noteId = parts[4];
+    const paper = mockPapers.find(p => p.id === paperId);
+    if (paper && paper.notes) {
+      paper.notes = paper.notes.filter((n: Note) => n.id !== noteId);
+    }
+    return { success: true };
   }
 
   // Highlights
@@ -691,6 +711,33 @@ function handleMockRequest(path: string, method: string, body?: any): any {
     return { success: true, data: { isFavorite: mat?.isFavorite ?? false } };
   }
 
+  // ---- Admin ----
+  if (path.startsWith('/admin/users') && method === 'GET') {
+    const mockAdminUsers = [
+      { id: 'admin-fixed', username: 'admin', displayName: '管理员', role: 'admin', isActive: true, createdAt: '2026-01-10T00:00:00Z' },
+      { id: 'mock-user-001', username: 'master', displayName: 'Master', role: 'admin', isActive: true, createdAt: '2026-01-15T00:00:00Z' },
+    ];
+    const params = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
+    let users = [...mockAdminUsers];
+    if (params.get('search')) {
+      const q = params.get('search')!.toLowerCase();
+      users = users.filter(u => u.username.includes(q) || u.displayName.toLowerCase().includes(q));
+    }
+    return { success: true, data: { users, pagination: { page: 1, limit: 20, total: users.length, totalPages: 1 } } };
+  }
+  if (path.match(/^\/admin\/users\/[^/]+$/) && method === 'PUT') {
+    return { success: true, data: body };
+  }
+  if (path === '/admin/stats' && method === 'GET') {
+    return {
+      success: true,
+      data: {
+        totalUsers: 2, totalPapers: mockPapers.length, totalProjects: mockProjects.length,
+        systemHealth: { kv: 'healthy', edgeFunctions: 'healthy', cloudFunctions: 'healthy' }
+      }
+    };
+  }
+
   // Fallback
   console.warn(`[Mock API] 未处理的请求: ${method} ${path}`);
   return { success: true };
@@ -705,7 +752,14 @@ class ApiClient {
   }
 
   private getToken(): string | null {
-    return localStorage.getItem('joan_auth_token');
+    const raw = localStorage.getItem('joan_auth_token');
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed?.state?.token || null;
+    } catch {
+      return raw; // Direct token string
+    }
   }
 
   /** 主请求方法：同步判断 Mock 或真实 API */
@@ -933,6 +987,10 @@ class ApiClient {
     );
   }
 
+  async deleteNote(paperId: string, noteId: string) {
+    return this.request(`/papers/${paperId}/notes/${noteId}`, { method: 'DELETE' });
+  }
+
   // ---- Highlights ----
   async getHighlights(paperId: string) {
     return this.request<{ success: boolean; data: Highlight[] }>(
@@ -1050,6 +1108,28 @@ class ApiClient {
       '/settings',
       { method: 'PUT', body: JSON.stringify(settings) }
     );
+  }
+
+  // ---- Admin ----
+  async getAdminUsers(params?: { search?: string; page?: number; limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.search) query.set('search', params.search);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    return this.request<{ success: boolean; data: { users: any[]; pagination: any } }>(
+      `/admin/users?${query.toString()}`
+    );
+  }
+
+  async updateUser(userId: string, data: Partial<{ role: string; isActive: boolean; displayName: string }>) {
+    return this.request(`/admin/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAdminStats() {
+    return this.request<{ success: boolean; data: any }>('/admin/stats');
   }
 }
 

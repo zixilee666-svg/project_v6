@@ -79,6 +79,18 @@
     "ADMIN_PASSWORD": {
       "description": "Admin login password",
       "value": "123456"
+    },
+    "AI_API_KEY": {
+      "description": "OpenAI API key for AI chat (leave empty for mock mode)",
+      "value": ""
+    },
+    "AI_API_URL": {
+      "description": "AI API endpoint URL",
+      "value": "https://api.openai.com/v1/chat/completions"
+    },
+    "CORS_ORIGINS": {
+      "description": "Allowed CORS origins (comma-separated, or * for all)",
+      "value": "*"
     }
   }
 }

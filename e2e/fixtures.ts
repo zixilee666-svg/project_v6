@@ -14,11 +14,31 @@ export async function injectAuth(page: Page, opts?: { role?: 'admin' | 'user' })
     createdAt: new Date().toISOString(),
   };
 
-  await page.goto('/#/login');                          // need origin context for localStorage
+  // Go to app origin first
+  await page.goto('/#/login');
+  await page.waitForTimeout(500);
+
+  // Clear stale data
+  await page.evaluate(() => {
+    localStorage.removeItem('joan_auth_token');
+    localStorage.removeItem('joan_academic_user');
+  });
+
+  // Set auth data in Zustand persist format
   await page.evaluate(({ token, userJson }) => {
-    localStorage.setItem('joan_auth_token', token);
-    localStorage.setItem('joan_academic_user', userJson);
+    localStorage.setItem('joan_auth_token', JSON.stringify({
+      state: { token, user: JSON.parse(userJson) },
+      version: 0,
+    }));
+    localStorage.setItem('joan_academic_user', JSON.stringify({
+      state: { user: JSON.parse(userJson) },
+      version: 0,
+    }));
   }, { token: 'mock-jwt-token-e2e', userJson: JSON.stringify(user) });
+
+  // Reload to trigger Zustand rehydration
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(1500);
 }
 
 // ─── Helper: clear all auth state ───
@@ -28,6 +48,8 @@ export async function clearAuth(page: Page) {
     localStorage.removeItem('joan_auth_token');
     localStorage.removeItem('joan_academic_user');
   });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(500);
 }
 
 // ─── Extend test fixture with auth helpers ───
