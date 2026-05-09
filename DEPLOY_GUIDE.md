@@ -1,290 +1,143 @@
-# Academic Hub v3.0 — 部署指南与 WorkBuddy Agent 使用手册
+# Joan's Academic Hub — 部署指南 (EdgeOne)
 
-> **版本**：v3.0 · 2026-04-25
-> **技术栈**：React 19 + TypeScript 6 + Vite 8 + Tailwind CSS + shadcn/ui + Framer Motion
+## 环境配置
 
----
+### 1. KV Storage 配置
 
-## 📋 目录
+在 EdgeOne 控制台创建 KV 命名空间：
 
-1. [项目简介](#1-项目简介)
-2. [WorkBuddy Agent 一键部署 Prompt（直接复制使用）](#2-workbuddy-agent-一键部署-prompt直接复制使用)
-3. [部署后操作](#3-部署后操作)
-4. [本地开发指南](#4-本地开发指南)
-5. [项目结构](#5-项目结构)
-6. [功能清单](#6-功能清单)
-7. [自定义配置](#7-自定义配置)
+- **命名空间名称**: `academic_hub_kv`
+- **变量名称**: `academic_hub_kv`
 
----
+### 2. 环境变量
 
-## 1. 项目简介
+在 EdgeOne Pages 设置以下环境变量：
 
-Academic Hub 是一个面向科研人员的学术论文管理与 AI 助手平台，支持：
+| 变量名 | 值 | 说明 |
+|--------|-----|------|
+| `JWT_SECRET` | `your-secret-key-here` | JWT 签名密钥（建议使用随机字符串） |
+| `AI_API_KEY` | `sk-xxx` | AI API 密钥（可选，不填则使用 Mock） |
+| `AI_API_URL` | `https://api.openai.com/v1/chat/completions` | AI API 地址 |
 
-| 模块 | 功能 |
-|------|------|
-| 📊 **仪表盘** | 文献阅读热力图、统计卡片、研究目标追踪 |
-| 📚 **文献库** | 论文详情、引用格式导出（BibTeX/IEEE/GB/T 7714）、标签筛选 |
-| 📂 **我的文献库** | 文献库文件夹增删改、论文拖拽分配 |
-| 📄 **个人资料** | PDF/Markdown/笔记/链接上传、7 大分类、标签管理 |
-| 💬 **AI 对话** | 贞德人格 AI 学术助手、多轮对话、Markdown 渲染 |
-| 🔬 **我的研究** | 研究项目创建与目标追踪 |
-| ⚙️ **设置** | 深色/浅色模式、个人资料编辑 |
+### 3. 前端环境变量
 
-**默认登录**：`admin` / `123456`
+| 变量名 | 开发环境 | 生产环境 |
+|--------|---------|---------|
+| `VITE_MOCK_MODE` | `true` | `false` |
+| `VITE_API_BASE_URL` | `/api` | `/api` |
 
----
+## 部署步骤
 
-## 2. WorkBuddy Agent 一键部署 Prompt（直接复制使用）
+### 1. 构建前端
 
-> ⚠️ **使用说明**：将以下 Prompt 完整复制粘贴到 WorkBuddy 对话窗口中，Agent 将自动完成所有部署步骤。
-
----
-
-```markdown
-## 任务：部署 Academic Hub 学术中心到 EdgeOne Pages
-
-### 项目位置
-`D:\Users\Lenovo\Desktop\test01-use\input\academic-hub-v3`
-
-### 部署目标
-- 平台：腾讯云 EdgeOne Pages
-- 站点名称：academic-hub（可自定义）
-- 构建命令：`npm install && npm run build`
-- 构建产物目录：`dist`
-- 构建后自动部署到 CDN
-
-### 执行步骤（按顺序执行）
-
-#### 步骤 1：检查项目环境
-1. 读取 `package.json` 确认依赖和构建脚本
-2. 确认 Node.js ≥ 18.0.0
-3. 确认 EdgeOne CLI 已安装（运行 `npx edgeone --version`）
-
-#### 步骤 2：安装依赖
-```bash
-cd "D:\Users\Lenovo\Desktop\test01-use\input\academic-hub-v3"
-npm install
-```
-> 目标：生成完整的 `node_modules/` 目录
-
-#### 步骤 3：构建项目
 ```bash
 npm run build
 ```
-> 目标：生成 `dist/` 目录（包含 index.html 和静态资源）
 
-#### 步骤 4：部署到 EdgeOne Pages
-```bash
-npx edgeone pages deploy \
-  -n academic-hub \
-  --site-name academic-hub \
-  --description "Academic Hub - 学术论文管理与 AI 助手平台" \
-  --dist dist
-```
-> 部署成功后将返回线上 URL，例如：
-> `https://academic-hub-xxxx.edgeone.cool`
+### 2. 部署到 EdgeOne Pages
 
-#### 步骤 5：验证部署
-1. 在浏览器中打开返回的 URL
-2. 确认页面正常加载，无 404 资源
-3. 确认控制台无 JavaScript 错误
-4. 确认登录页正常显示
+使用 EdgeOne CLI 或 GitHub Actions 自动部署。
 
-### 预期结果
-- ✅ `node_modules/` 已安装
-- ✅ `dist/` 构建产物已生成
-- ✅ EdgeOne Pages 部署成功，线上可访问
-- ✅ 登录页正常渲染，静态资源全部加载
+### 3. 配置 Edge Functions
 
-### 如遇问题
-| 问题 | 解决方案 |
-|------|---------|
-| EdgeOne CLI 未安装 | `npm install -g @edgeone/edgeone` |
-| 构建失败 | 检查 TypeScript 错误，运行 `npm run build 2>&1` 获取详细错误 |
-| 部署失败 | 确认 EdgeOne 账号已登录，运行 `npx edgeone login` |
-| 部署后页面空白 | 检查 `dist/index.html` 是否存在，确认 HashRouter 路由模式 |
-```
+Edge Functions (`functions/index.js`) 会自动处理 `/api/*` 路由。
 
----
+## 账号信息
 
-## 3. 部署后操作
+### 管理员账号
 
-### 3.1 修改站点名称（可选）
-如果需要自定义部署名称，修改 `-n` 参数：
-```bash
-npx edgeone pages deploy -n your-site-name --dist dist
-```
+| 字段 | 值 |
+|------|-----|
+| 用户名 | `admin` |
+| 密码 | `123456` |
 
-### 3.2 自定义登录凭据（可选）
-修改 `src/lib/api.ts` 中的 `MOCK_USERS`：
-```typescript
-const MOCK_USERS: User[] = [
-  {
-    id: 'u-admin',
-    username: 'your-username',  // ← 修改这里
-    password: 'your-password',  // ← 修改这里
-    // ...
-  },
-];
-```
+### 贞德演示账号
 
-### 3.3 自定义 Seed 数据（可选）
-修改 `src/lib/api.ts` 中的以下 Mock 数据：
-- `mockPapers`：论文数据（搜索 GNN/HGNN/欺诈检测相关论文）
-- `mockProjects`：研究项目数据
-- `mockLibraries`：文献库初始数据
-- `mockMaterials`：个人资料初始数据
-- `mockConversations`：AI 对话历史
+| 字段 | 值 |
+|------|-----|
+| 用户名 | `joan` |
+| 密码 | `11223344` |
 
-### 3.4 添加 EdgeOne KV 持久化（可选）
-如需持久化存储，参考 `DEPLOY.md` 中的 Cloud Functions + KV 配置。
+## API 端点
 
----
+### 认证
 
-## 4. 本地开发指南
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/auth/login` | 用户登录 |
+| POST | `/api/auth/register` | 用户注册 |
+| GET | `/api/auth/me` | 获取当前用户 |
+| POST | `/api/auth/logout` | 登出 |
 
-### 4.1 安装与启动
-```bash
-cd academic-hub-v3
-npm install
-npm run dev      # 开发模式，http://localhost:5173
-npm run build    # 生产构建
-npm run preview # 预览构建产物
-```
+### 用户管理
 
-### 4.2 添加新页面
-1. 在 `src/pages/` 中创建 `NewPage.tsx`
-2. 在 `src/App.tsx` 中添加路由：
-```tsx
-import NewPage from '@/pages/NewPage';
-<Route path="/new-page" element={<NewPage />} />
-```
-3. 在 `src/components/layout/AppLayout.tsx` 的 `navItems` 数组中添加导航项
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/users` | 获取所有用户（管理员） |
+| GET | `/api/users/:id` | 获取用户详情 |
+| PUT | `/api/users/:id` | 更新用户 |
+| DELETE | `/api/users/:id` | 删除用户（管理员） |
 
-### 4.3 添加 UI 组件
-使用 shadcn/ui CLI：
-```bash
-npx shadcn@latest add button
-```
+### 空间管理
 
-### 4.4 添加新的 API 接口
-1. 在 `src/lib/api.ts` 的 `handleMockRequest` 函数中添加 Mock 处理
-2. 在 `ApiClient` 类中添加对应的方法
-3. 如需真实后端，修改 `VITE_API_BASE_URL` 环境变量
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/spaces` | 获取所有空间 |
+| GET | `/api/spaces/:username` | 获取空间详情 |
+| PUT | `/api/spaces/:username` | 更新空间（仅所有者） |
 
----
+### 论文管理
 
-## 5. 项目结构
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/users/:username/papers` | 获取用户论文列表 |
+| GET | `/api/papers/:id` | 获取论文详情 |
+| POST | `/api/papers` | 创建论文（需认证） |
+| PUT | `/api/papers/:id` | 更新论文（仅作者） |
+| DELETE | `/api/papers/:id` | 删除论文（仅作者） |
 
-```
-academic-hub-v3/
-├── src/
-│   ├── components/
-│   │   ├── layout/         # AppLayout（侧边栏+顶部栏）
-│   │   ├── shared/         # 共享组件（SearchBar, DatePicker）
-│   │   └── ui/             # shadcn/ui 基础组件（17个）
-│   ├── context/
-│   │   ├── AuthContext.tsx # 认证状态管理
-│   │   └── ThemeContext.tsx
-│   ├── hooks/
-│   │   └── use-toast.ts
-│   ├── lib/
-│   │   ├── api.ts          # Mock API + API Client
-│   │   ├── constants.ts     # 常量定义
-│   │   └── utils.ts        # 工具函数
-│   ├── pages/              # 页面组件（9个）
-│   │   ├── DashboardPage.tsx
-│   │   ├── LibraryPage.tsx
-│   │   ├── MyLibraryPage.tsx    # ← 新增 v3.0
-│   │   ├── MaterialsPage.tsx     # ← 新增 v3.0
-│   │   ├── AIChatPage.tsx        # ← 新增 v3.0
-│   │   ├── PaperDetailPage.tsx
-│   │   ├── ResearchPage.tsx
-│   │   ├── SettingsPage.tsx
-│   │   ├── AdminPage.tsx
-│   │   └── ImportExportPage.tsx
-│   ├── types/
-│   │   └── index.ts        # 全局 TypeScript 类型
-│   ├── App.tsx             # 路由配置
-│   ├── main.tsx            # 入口文件
-│   └── index.css           # 全局样式 + Joan 配色
-├── public/
-│   └── favicon.ico
-├── docs/                   # 文档
-├── scripts/                # 辅助脚本
-├── DEPLOY.md              # 详细部署文档
-├── README.md              # 项目说明
-├── package.json
-├── vite.config.ts
-├── tailwind.config.js
-└── tsconfig.json
-```
+### 项目管理
 
----
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/users/:username/projects` | 获取用户项目列表 |
+| GET | `/api/projects/:id` | 获取项目详情 |
+| POST | `/api/projects` | 创建项目（需认证） |
+| PUT | `/api/projects/:id` | 更新项目（仅所有者） |
+| DELETE | `/api/projects/:id` | 删除项目（仅所有者） |
 
-## 6. 功能清单
+### 文献库管理
 
-### 6.1 已完成功能
-- [x] HashRouter（兼容静态托管，无需服务端路由）
-- [x] 深色/浅色模式（自动跟随系统 + 手动切换）
-- [x] JWT 认证（Mock 实现）
-- [x] 响应式布局（桌面端固定侧栏，移动端可折叠）
-- [x] Framer Motion 页面过渡动画
-- [x] 论文搜索（标题/作者/关键词）
-- [x] 论文详情页（摘要、引用格式导出、标签笔记）
-- [x] 文献库管理（增删改文件夹、论文分配）
-- [x] 个人资料上传（PDF/Markdown/笔记/链接，拖拽上传）
-- [x] AI 学术对话（贞德人格、多轮对话、Markdown 渲染）
-- [x] 研究项目与目标追踪
-- [x] 论文批量导入/导出（BibTeX 格式）
-- [x] 管理员面板
-- [x] 阅读热力图（基于 mock 数据）
-- [x] EdgeOne Pages 部署配置
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/users/:username/libraries` | 获取用户文献库列表 |
+| GET | `/api/libraries/:id` | 获取文献库详情 |
+| POST | `/api/libraries` | 创建文献库（需认证） |
+| PUT | `/api/libraries/:id` | 更新文献库（仅所有者） |
+| DELETE | `/api/libraries/:id` | 删除文献库（仅所有者） |
 
-### 6.2 待集成功能（可选）
-- [ ] 接入真实 LLM API（当前为 Mock 响应）
-- [ ] EdgeOne KV 持久化存储
-- [ ] Cloud Functions 后端（多用户支持）
-- [ ] arXiv / Semantic Scholar 真实搜索 API
-- [ ] PDF 文件预览
-- [ ] 邮件通知
+### 统计（管理员）
 
----
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/stats` | 获取系统统计 |
 
-## 7. 自定义配置
+## 故障排除
 
-### 7.1 环境变量
-创建 `.env` 文件：
-```env
-VITE_API_BASE_URL=https://your-api.com/api
-VITE_APP_TITLE=Academic Hub
-VITE_DEFAULT_USERNAME=admin
-VITE_DEFAULT_PASSWORD=123456
-```
+### KV Storage 报错
 
-### 7.2 主题配色
-修改 `src/index.css` 中的 CSS 变量：
-```css
-:root {
-  --color-primary: #C9A96E;       /* 主色（金色） */
-  --color-primary-dark: #B8935A; /* 深金 */
-  --color-secondary: #3D5A80;    /* 辅助色（深蓝） */
-  --color-accent: #2D8A4E;       /* 强调色（绿色） */
-  --color-danger: #B91C1C;       /* 危险/删除（红色） */
+确保已正确配置 KV 命名空间：
+```json
+{
+  "kv": [
+    {
+      "binding": "academic_hub_kv",
+      "namespace": "academic_hub_kv"
+    }
+  ]
 }
 ```
 
-### 7.3 部署到其他平台
-| 平台 | 命令 |
-|------|------|
-| Vercel | `vercel --prod` |
-| Netlify | `netlify deploy --prod` |
-| GitHub Pages | 使用 GitHub Actions |
+### JWT 验证失败
 
-> ⚠️ **重要**：由于使用 HashRouter，请确保部署平台配置为将所有路径重定向到 `index.html`。
-> Vercel/Netlify/GitHub Pages 部署请在项目根目录添加 `_redirects` 或 `vercel.json` 配置文件。
-
----
-
-*Academic Hub v3.0 — 贞德・达尔克裁定者形态 · 学术本心，真理之灯。*
+确保 `JWT_SECRET` 环境变量与前后端一致。

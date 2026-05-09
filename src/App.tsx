@@ -52,6 +52,8 @@ function AppRoutes() {
         {/* 公开路由 - 包含备案号Footer */}
         <Route element={<PublicLayout />}>
           <Route path="/login" element={<AuthPage />} />
+          <Route path="/login/:tab" element={<AuthPage />} />
+          <Route path="/register" element={<AuthPage />} />
           <Route path="/" element={<GalleryPage />} />
           <Route path="/gallery" element={<GalleryPage />} />
           <Route path="/u/:username" element={<PublicProfilePage />} />

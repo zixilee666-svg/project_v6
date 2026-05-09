@@ -6,12 +6,9 @@ import {
   GraduationCap,
   BookOpen,
   Globe,
-  TrendingUp,
-  ArrowUpDown,
-  Eye,
-  FileText,
-  FlaskConical,
   Users,
+  Sparkles,
+  ArrowRight,
 } from 'lucide-react';
 import { spaceService, type SpaceConfig } from '@/services/spaceService';
 import { Input } from '@/components/ui/input';
@@ -30,36 +27,55 @@ import Loading from '@/components/common/Loading';
 import Pagination from '@/components/common/Pagination';
 
 // ── SpaceCard ──
-function SpaceCard({ space }: { space: SpaceConfig }) {
+function SpaceCard({ space, featured = false }: { space: SpaceConfig; featured?: boolean }) {
+  const initials = (space.displayName || space.username).charAt(0).toUpperCase();
+  const bgColors = ['bg-blue-500', 'bg-purple-500', 'bg-emerald-500', 'bg-rose-500', 'bg-amber-500'];
+  const colorIdx = space.username.charCodeAt(0) % bgColors.length;
+
   return (
     <motion.div
-      whileHover={{ y: -3 }}
+      whileHover={{ y: -4 }}
       transition={{ type: 'spring', stiffness: 300 }}
     >
-      <Card className="h-full transition-shadow hover:shadow-lg">
+      <Card className={`h-full overflow-hidden transition-all duration-300 hover:shadow-xl ${featured ? 'ring-2 ring-primary/50 shadow-lg' : ''}`}>
         <Link to={`/u/${space.username}`} className="block">
+          {/* Featured badge */}
+          {featured && (
+            <div className="bg-gradient-to-r from-primary to-accent-500 text-white text-center py-1 text-xs font-medium">
+              <Sparkles className="inline w-3 h-3 mr-1" />
+              官方示范空间
+            </div>
+          )}
+
           <CardContent className="pt-5 pb-4">
             {/* Avatar + Name */}
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-display text-lg font-bold">
-                {(space.displayName || space.username).charAt(0).toUpperCase()}
+            <div className="flex items-start gap-3 mb-3">
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white font-display text-lg font-bold shadow-md ${bgColors[colorIdx]}`}>
+                {initials}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h3 className="text-sm font-semibold truncate">
                   {space.displayName || space.username}
                 </h3>
                 {space.institution && (
-                  <p className="text-xs text-primary-400 truncate">
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
                     {space.institution}
                   </p>
                 )}
               </div>
             </div>
 
+            {/* Bio */}
+            {space.bio && (
+              <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+                {space.bio}
+              </p>
+            )}
+
             {/* Research tags */}
             {space.researchField && (
               <div className="flex flex-wrap gap-1 mb-3">
-                {space.researchField.split(/[,，、]/).map((f) => (
+                {space.researchField.split(/[,，、]/).slice(0, 3).map((f) => (
                   <Badge key={f} variant="secondary" className="text-[10px] px-1.5 py-0">
                     {f.trim()}
                   </Badge>
@@ -68,32 +84,19 @@ function SpaceCard({ space }: { space: SpaceConfig }) {
             )}
 
             {/* Stats */}
-            <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3">
-              <span className="flex items-center gap-1">
-                <FileText className="h-3 w-3" />
-                {space.paperCount} 篇文献
-              </span>
-              <span className="flex items-center gap-1">
-                <FlaskConical className="h-3 w-3" />
-                {space.projectCount} 个项目
-              </span>
-              <span className="flex items-center gap-1">
-                <Eye className="h-3 w-3" />
-                {space.viewCount}
-              </span>
-            </div>
-
-            {/* Popularity bar */}
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-accent-400 transition-all"
-                  style={{ width: `${Math.min(100, space.popularity || 0)}%` }}
-                />
+            <div className="grid grid-cols-3 gap-2 pt-3 border-t text-xs">
+              <div className="text-center">
+                <div className="font-semibold text-foreground">{space.paperCount}</div>
+                <div className="text-muted-foreground">文献</div>
               </div>
-              <span className="text-[10px] text-muted-foreground">
-                {space.popularity || 0}
-              </span>
+              <div className="text-center">
+                <div className="font-semibold text-foreground">{space.projectCount}</div>
+                <div className="text-muted-foreground">项目</div>
+              </div>
+              <div className="text-center">
+                <div className="font-semibold text-foreground">{space.viewCount}</div>
+                <div className="text-muted-foreground">浏览</div>
+              </div>
             </div>
           </CardContent>
         </Link>
@@ -113,7 +116,6 @@ export default function GalleryPage() {
   const [totalSpaces, setTotalSpaces] = useState(0);
   const [currentPage, setCurrentPage] = useState(Number(searchParams.get('page') || '1'));
   const pageSize = 12;
-  const totalPages = Math.ceil(totalSpaces / pageSize);
 
   const updateSearchParams = useCallback(
     (updates: Record<string, string>) => {
@@ -170,121 +172,203 @@ export default function GalleryPage() {
     setCurrentPage(1);
   };
 
+  // 贞德的示范空间始终排在第一位
+  const joanSpace = spaces.find(s => s.username === 'joan');
+  const otherSpaces = spaces.filter(s => s.username !== 'joan');
+
   return (
-    <AnimatedPage className="min-h-screen bg-ivory-100 dark:bg-primary-900">
-      <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-        {/* Header */}
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-primary-800 dark:text-ivory-100 font-display">
-            学术空间画廊
-          </h1>
-          <p className="mt-1 text-sm text-primary-400">
-            探索研究者的学术世界
-          </p>
+    <AnimatedPage className="min-h-screen bg-gradient-to-br from-ivory-50 via-white to-ivory-100 dark:from-primary-900 dark:via-primary-900 dark:to-primary-800">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* Hero Section */}
+        <div className="text-center mb-8">
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <h1 className="text-3xl sm:text-4xl font-bold text-primary-800 dark:text-ivory-100 font-display mb-3">
+              <Sparkles className="inline w-8 h-8 mr-2 text-accent-500" />
+              学术空间画廊
+            </h1>
+            <p className="text-base text-primary-500 dark:text-primary-300 max-w-2xl mx-auto">
+              探索卓越研究者的学术世界，发现前沿研究与创新项目
+            </p>
+          </motion.div>
+
+          {/* Action Buttons */}
+          <motion.div
+            className="flex flex-wrap items-center justify-center gap-3 mt-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+          >
+            <Link to="/dashboard">
+              <Button size="lg" className="gap-2 shadow-lg shadow-primary/25">
+                <BookOpen className="w-5 h-5" />
+                进入我的学术中心
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+            <div className="flex gap-2">
+              <Link to="/login">
+              <Button variant="outline" size="lg">登录</Button>
+            </Link>
+            <Link to="/login?tab=register">
+              <Button variant="secondary" size="lg">注册</Button>
+            </Link>
+            </div>
+          </motion.div>
         </div>
 
-        {/* Stats bar */}
-        <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-primary" />
-            <strong className="text-foreground">{totalSpaces}</strong> 位学者
-          </span>
-          <span className="flex items-center gap-1.5">
-            <BookOpen className="w-4 h-4 text-primary" />
+        {/* Stats Bar */}
+        <motion.div
+          className="flex items-center justify-center gap-8 text-sm mb-8"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+        >
+          <div className="flex items-center gap-2 bg-white/60 dark:bg-primary-800/60 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm">
+            <Users className="w-5 h-5 text-primary" />
+            <strong className="text-foreground">{totalSpaces}</strong>
+            <span className="text-muted-foreground">位学者</span>
+          </div>
+          <div className="flex items-center gap-2 bg-white/60 dark:bg-primary-800/60 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm">
+            <BookOpen className="w-5 h-5 text-primary" />
             <strong className="text-foreground">
               {spaces.reduce((sum, s) => sum + s.paperCount, 0)}
-            </strong>{' '}
-            篇文献
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Globe className="w-4 h-4 text-primary" />
-            <strong className="text-foreground">{totalSpaces}</strong> 个空间
-          </span>
-        </div>
+            </strong>
+            <span className="text-muted-foreground">篇文献</span>
+          </div>
+          <div className="flex items-center gap-2 bg-white/60 dark:bg-primary-800/60 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm">
+            <Globe className="w-5 h-5 text-primary" />
+            <strong className="text-foreground">{totalSpaces}</strong>
+            <span className="text-muted-foreground">个空间</span>
+          </div>
+        </motion.div>
 
         {/* Search + Filters */}
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <form onSubmit={handleSearch} className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary-400" />
-                <Input
-                  placeholder="搜索学者、机构、研究领域..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <Select value={field || 'all'} onValueChange={handleFieldChange}>
-                <SelectTrigger className="w-full sm:w-[160px]">
-                  <SelectValue placeholder="研究领域" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部领域</SelectItem>
-                  <SelectItem value="graph-neural-network">图神经网络</SelectItem>
-                  <SelectItem value="natural-language-processing">自然语言处理</SelectItem>
-                  <SelectItem value="computer-vision">计算机视觉</SelectItem>
-                  <SelectItem value="reinforcement-learning">强化学习</SelectItem>
-                  <SelectItem value="fraud-detection">欺诈检测</SelectItem>
-                  <SelectItem value="recommendation-system">推荐系统</SelectItem>
-                  <SelectItem value="knowledge-graph">知识图谱</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={sort} onValueChange={handleSortChange}>
-                <SelectTrigger className="w-full sm:w-[140px]">
-                  <ArrowUpDown className="w-4 h-4 mr-1.5 text-muted-foreground" />
-                  <SelectValue placeholder="排序" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="popularity">最受欢迎</SelectItem>
-                  <SelectItem value="recent">最近活跃</SelectItem>
-                  <SelectItem value="papers">文献最多</SelectItem>
-                </SelectContent>
-              </Select>
-            </form>
-          </CardContent>
-        </Card>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+        >
+          <Card className="border-0 shadow-lg bg-white/80 dark:bg-primary-800/80 backdrop-blur-sm">
+            <CardContent className="pt-5 pb-4">
+              <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-primary-400" />
+                  <Input
+                    placeholder="搜索学者、机构、研究领域..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-10 h-11 text-base"
+                  />
+                </div>
+                <Select value={field || 'all'} onValueChange={handleFieldChange}>
+                  <SelectTrigger className="w-full sm:w-[180px] h-11">
+                    <SelectValue placeholder="研究领域" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部领域</SelectItem>
+                    <SelectItem value="graph-neural-network">图神经网络</SelectItem>
+                    <SelectItem value="natural-language-processing">自然语言处理</SelectItem>
+                    <SelectItem value="computer-vision">计算机视觉</SelectItem>
+                    <SelectItem value="reinforcement-learning">强化学习</SelectItem>
+                    <SelectItem value="fraud-detection">欺诈检测</SelectItem>
+                    <SelectItem value="recommendation-system">推荐系统</SelectItem>
+                    <SelectItem value="knowledge-graph">知识图谱</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={sort} onValueChange={handleSortChange}>
+                  <SelectTrigger className="w-full sm:w-[160px] h-11">
+                    <SelectValue placeholder="排序方式" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="popularity">🔥 最受欢迎</SelectItem>
+                    <SelectItem value="recent">🕐 最近活跃</SelectItem>
+                    <SelectItem value="papers">📚 文献最多</SelectItem>
+                  </SelectContent>
+                </Select>
+              </form>
+            </CardContent>
+          </Card>
+        </motion.div>
 
         {/* Results */}
-        {loading ? (
-          <Loading message="正在加载学术空间..." />
-        ) : spaces.length === 0 ? (
-          <div className="text-center py-16">
-            <GraduationCap className="w-12 h-12 mx-auto text-primary-300 mb-4" />
-            <h3 className="text-lg font-semibold text-primary-800 dark:text-ivory-100">
-              暂无学术空间
-            </h3>
-            <p className="text-sm text-primary-400 mt-1">尝试调整搜索条件或筛选器</p>
-          </div>
-        ) : (
-          <>
-            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {spaces.map((space, idx) => (
+        <div className="mt-8">
+          {loading ? (
+            <Loading message="正在加载学术空间..." />
+          ) : spaces.length === 0 ? (
+            <motion.div
+              className="text-center py-16"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              <GraduationCap className="w-16 h-16 mx-auto text-primary-300 mb-4" />
+              <h3 className="text-lg font-semibold text-primary-800 dark:text-ivory-100 mb-2">
+                暂无学术空间
+              </h3>
+              <p className="text-sm text-primary-400">
+                尝试调整搜索条件或筛选器，或成为第一个创建空间的人！
+              </p>
+            </motion.div>
+          ) : (
+            <>
+              {/* Featured: Joan's Space */}
+              {joanSpace && (
                 <motion.div
-                  key={space.username}
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.04, duration: 0.3 }}
+                  className="mb-6"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.2 }}
                 >
-                  <SpaceCard space={space} />
+                  <h2 className="text-lg font-semibold text-primary-700 dark:text-ivory-200 mb-4 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-accent-500" />
+                    官方示范空间
+                  </h2>
+                  <div className="max-w-md">
+                    <SpaceCard space={joanSpace} featured />
+                  </div>
                 </motion.div>
-              ))}
-            </div>
+              )}
 
-            {totalPages > 1 && (
-              <div className="pt-4">
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  onPageChange={(page) => {
-                    setCurrentPage(page);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                />
-              </div>
-            )}
-          </>
-        )}
+              {/* Other Spaces */}
+              {otherSpaces.length > 0 && (
+                <>
+                  <h2 className="text-lg font-semibold text-primary-700 dark:text-ivory-200 mb-4">
+                    全部学术空间
+                  </h2>
+                  <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {otherSpaces.map((space, idx) => (
+                      <motion.div
+                        key={space.username}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05, duration: 0.3 }}
+                      >
+                        <SpaceCard space={space} />
+                      </motion.div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Pagination */}
+              {Math.ceil(totalSpaces / pageSize) > 1 && (
+                <div className="pt-8">
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(totalSpaces / pageSize)}
+                    onPageChange={(page) => {
+                      setCurrentPage(page);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </AnimatedPage>
   );

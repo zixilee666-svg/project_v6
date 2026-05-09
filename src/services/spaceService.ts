@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import { api as libApi } from '@/lib/api';
 
 export interface SpaceConfig {
   username: string;
@@ -23,13 +24,29 @@ export interface SpaceConfig {
   };
 }
 
+// Mock模式：使用lib/api.ts中的mock数据
+const IS_MOCK = import.meta.env.VITE_MOCK_MODE !== 'false';
+
 export const spaceService = {
-  list: (params?: { search?: string; field?: string; sort?: string; page?: number }) => {
+  list: async (params?: { search?: string; field?: string; sort?: string; page?: number; limit?: number }) => {
+    if (IS_MOCK) {
+      // Mock模式：直接使用lib/api的mock数据
+      return libApi.getSpaces({
+        search: params?.search,
+        field: params?.field,
+        sort: params?.sort,
+        page: params?.page,
+        limit: params?.limit || 12,
+      });
+    }
+
+    // 真实API请求
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
     if (params?.field) query.set('field', params.field);
     if (params?.sort) query.set('sort', params.sort);
     if (params?.page) query.set('page', String(params.page));
+    query.set('limit', '12');
     return apiClient.get<{ spaces: SpaceConfig[]; total: number }>(`/spaces?${query}`);
   },
 

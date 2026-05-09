@@ -114,6 +114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try { await api.logout(); } catch { /* ignore */ }
+    // Mark that user just logged out (allows access to login page)
+    sessionStorage.setItem('joan_just_logged_out', 'true');
     // Sync to Zustand store (which handles localStorage)
     useAuthStore.getState().logout();
     dispatch({ type: 'LOGOUT' });

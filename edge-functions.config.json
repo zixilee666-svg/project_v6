@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "framework": "vite",
+  "routes": [
+    {
+      "path": "/api/*",
+      "target": "./edge-functions"
+    },
+    {
+      "path": "/*",
+      "target": "./dist"
+    }
+  ],
+  "edgeFunctions": {
+    "routes": [
+      {
+        "src": "/api/(.*)",
+        "dest": "/api/index.js"
+      }
+    ]
+  }
+}

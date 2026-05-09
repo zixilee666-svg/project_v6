@@ -118,7 +118,7 @@ if (IS_MOCK) {
   console.log('[Academic Hub] 🌐 真实 API 模式，后端地址:', API_BASE);
 }
 
-// ---- Mock 数据 ----
+// ---- Mock 用户数据 ----
 const mockUser: User = {
   id: 'mock-user-001',
   username: 'master',
@@ -129,7 +129,21 @@ const mockUser: User = {
   avatar: null,
 };
 
+// 贞德 (Joan) 用户 - 演示账号
+export const mockJoanUser: User = {
+  id: 'user-joan',
+  username: 'joan',
+  displayName: 'Joan Chen (贞德)',
+  email: 'joan@academic-hub.local',
+  institution: 'Fudan University',
+  role: 'user',
+  bio: 'PhD candidate researching Graph Neural Networks and Financial AI.',
+  createdAt: '2025-01-01T00:00:00.000Z',
+  avatar: '',
+};
+
 const mockToken = 'mock-jwt-token-' + Date.now();
+const mockJoanToken = 'mock-joan-token-' + Date.now();
 
 const mockPapers: Paper[] = [
   {
@@ -277,6 +291,75 @@ const mockPapers: Paper[] = [
     notes: [],
     highlights: [],
     addedAt: '2026-04-25T09:00:00Z',
+  },
+];
+
+// ---- Mock Spaces (for GalleryPage) ----
+const mockSpaces: Array<{
+  username: string;
+  displayName: string;
+  institution: string;
+  researchField: string;
+  bio: string;
+  paperCount: number;
+  projectCount: number;
+  viewCount: number;
+  popularity: number;
+}> = [
+  {
+    username: 'joan',
+    displayName: '贞德 (Joan)',
+    institution: 'Joan 学术研究所',
+    researchField: 'graph-neural-network, knowledge-graph, fraud-detection',
+    bio: '专注于图神经网络与知识图谱研究，致力于金融欺诈检测与学术工具的智能化。热爱分享学术知识，助您探索学术世界。',
+    paperCount: 8,
+    projectCount: 3,
+    viewCount: 256,
+    popularity: 95,
+  },
+  {
+    username: 'zhang-wei',
+    displayName: '张伟',
+    institution: '清华大学',
+    researchField: 'natural-language-processing, reinforcement-learning',
+    bio: '研究方向为自然语言处理与强化学习的结合应用，特别关注对话系统与智能助手。',
+    paperCount: 12,
+    projectCount: 2,
+    viewCount: 189,
+    popularity: 87,
+  },
+  {
+    username: 'li-ming',
+    displayName: '李明',
+    institution: '北京大学',
+    researchField: 'computer-vision, knowledge-graph',
+    bio: '计算机视觉与知识图谱交叉领域研究者，专注于多模态学习与视觉推理。',
+    paperCount: 15,
+    projectCount: 4,
+    viewCount: 312,
+    popularity: 92,
+  },
+  {
+    username: 'wang-fang',
+    displayName: '王芳',
+    institution: '复旦大学',
+    researchField: 'graph-neural-network, recommendation-system',
+    bio: '图神经网络在推荐系统中的应用研究，探索用户行为建模与个性化推荐算法。',
+    paperCount: 9,
+    projectCount: 1,
+    viewCount: 145,
+    popularity: 78,
+  },
+  {
+    username: 'chen-lei',
+    displayName: '陈磊',
+    institution: '上海交通大学',
+    researchField: 'fraud-detection, graph-neural-network',
+    bio: '金融欺诈检测领域专家，主要研究基于图神经网络的异常检测与风险评估。',
+    paperCount: 18,
+    projectCount: 5,
+    viewCount: 420,
+    popularity: 98,
   },
 ];
 
@@ -442,6 +525,10 @@ function handleMockRequest(path: string, method: string, body?: any): any {
       const adminUser = { ...mockUser, username: 'admin', id: 'admin-fixed', role: 'admin' as const, displayName: 'Administrator' };
       return { success: true, data: { token: mockToken, user: adminUser } };
     }
+    // 贞德演示账号
+    if (username === 'joan' && password === '11223344') {
+      return { success: true, data: { token: mockJoanToken, user: mockJoanUser } };
+    }
     const user = { ...mockUser, username };
     return { success: true, data: { token: mockToken, user } };
   }
@@ -578,6 +665,47 @@ function handleMockRequest(path: string, method: string, body?: any): any {
     const idx = mockProjects.findIndex(p => p.id === id);
     if (idx >= 0) mockProjects.splice(idx, 1);
     return { success: true };
+  }
+
+  // Spaces — list GET
+  if (path.startsWith('/spaces') && !path.includes('/') && method === 'GET') {
+    const paramStr = path.includes('?') ? path.split('?')[1] : '';
+    const params = new URLSearchParams(paramStr);
+    let results = [...mockSpaces];
+    const search = params.get('search')?.toLowerCase();
+    const field = params.get('field');
+    const sort = params.get('sort') || 'popularity';
+    const page = parseInt(params.get('page') || '1');
+    const limit = parseInt(params.get('limit') || '12');
+
+    // 搜索过滤
+    if (search) {
+      results = results.filter(s =>
+        s.displayName.toLowerCase().includes(search) ||
+        s.institution.toLowerCase().includes(search) ||
+        s.researchField.toLowerCase().includes(search)
+      );
+    }
+
+    // 领域过滤
+    if (field) {
+      results = results.filter(s => s.researchField.includes(field));
+    }
+
+    // 排序
+    if (sort === 'popularity') {
+      results.sort((a, b) => b.popularity - a.popularity);
+    } else if (sort === 'papers') {
+      results.sort((a, b) => b.paperCount - a.paperCount);
+    } else if (sort === 'recent') {
+      results.sort((a, b) => b.viewCount - a.viewCount);
+    }
+
+    const total = results.length;
+    const offset = (page - 1) * limit;
+    const paginated = results.slice(offset, offset + limit);
+
+    return { success: true, data: { spaces: paginated, total } };
   }
 
   // Notes
@@ -812,14 +940,14 @@ function handleMockRequest(path: string, method: string, body?: any): any {
   // ---- Admin ----
   if (path.startsWith('/admin/users') && method === 'GET') {
     const mockAdminUsers = [
-      { id: 'admin-fixed', username: 'admin', displayName: '管理员', role: 'admin', isActive: true, createdAt: '2026-01-10T00:00:00Z' },
-      { id: 'mock-user-001', username: 'master', displayName: 'Master', role: 'admin', isActive: true, createdAt: '2026-01-15T00:00:00Z' },
+      { id: 'admin-fixed', username: 'admin', displayName: 'Administrator', role: 'admin', isActive: true, createdAt: '2026-01-10T00:00:00Z' },
+      { id: 'user-joan', username: 'joan', displayName: 'Joan Chen (贞德)', role: 'user', isActive: true, createdAt: '2025-01-01T00:00:00Z', institution: 'Fudan University' },
     ];
     const params = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
     let users = [...mockAdminUsers];
     if (params.get('search')) {
       const q = params.get('search')!.toLowerCase();
-      users = users.filter(u => u.username.includes(q) || u.displayName.toLowerCase().includes(q));
+      users = users.filter(u => u.username.includes(q) || (u.displayName && u.displayName.toLowerCase().includes(q)));
     }
     return { success: true, data: { users, pagination: { page: 1, limit: 20, total: users.length, totalPages: 1 } } };
   }
@@ -1328,6 +1456,17 @@ class ApiClient {
 
   async getAdminStats() {
     return this.request<{ success: boolean; data: any }>('/admin/stats');
+  }
+
+  /** 获取学术空间列表（Spaces Gallery） */
+  async getSpaces(params?: { search?: string; field?: string; sort?: string; page?: number; limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.search) query.set('search', params.search);
+    if (params?.field) query.set('field', params.field);
+    if (params?.sort) query.set('sort', params.sort);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    return this.request<{ success: boolean; data: { spaces: any[]; total: number } }>(`/spaces?${query}`);
   }
 }
 

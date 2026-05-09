@@ -11,6 +11,7 @@ export interface User {
   email?: string;
   institution?: string;
   researchField?: string;
+  bio?: string;
   role: 'user' | 'admin';
   createdAt: string;
 }
