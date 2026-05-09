@@ -2,6 +2,8 @@
 
 学术中心平台 - 基于 React 19 + Edge Functions + Cloud Functions 的现代化学术管理应用。
 
+[![ICP备案](https://img.shields.io/badge/ICP-粤ICP备2026052655号--1-blue)](https://beian.miit.gov.cn/)
+
 ## 功能特性
 
 - 用户注册与登录（支持密码强度检测、用户名实时检查）
@@ -133,6 +135,20 @@ npm run preview
 | 用户名 | 密码 |
 |--------|------|
 | admin | 123456 |
+
+## 备案信息
+
+本项目已按照中国法规要求添加 ICP 备案号：
+
+- **ICP备案号**: 粤ICP备2026052655号-1
+- **备案链接**: [工信部备案查询](https://beian.miit.gov.cn/)
+
+### 修改备案号
+
+如需使用自己的备案号，请修改以下文件：
+
+1. **`src/components/layout/SiteFooter.tsx`** - 修改备案号文本和链接
+2. **`pages.config.json`** - 更新 `site.icp.number` 字段
 
 ## License
 

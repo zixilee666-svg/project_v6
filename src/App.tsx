@@ -17,6 +17,7 @@ import MyLibraryPage from '@/pages/MyLibraryPage';
 import MaterialsPage from '@/pages/MaterialsPage';
 import AIChatPage from '@/pages/AIChatPage';
 import AppLayout from '@/components/layout/AppLayout';
+import PublicLayout from '@/components/layout/PublicLayout';
 import AuthPage from '@/pages/AuthPage';
 import GalleryPage from '@/pages/GalleryPage';
 import PublicProfilePage from '@/pages/PublicProfilePage';
@@ -48,11 +49,13 @@ function AppRoutes() {
   return (
     <AnimatePresence mode="wait">
       <Routes>
-        {/* 公开路由 */}
-        <Route path="/login" element={<AuthPage />} />
-        <Route path="/" element={<GalleryPage />} />
-        <Route path="/gallery" element={<GalleryPage />} />
-        <Route path="/u/:username" element={<PublicProfilePage />} />
+        {/* 公开路由 - 包含备案号Footer */}
+        <Route element={<PublicLayout />}>
+          <Route path="/login" element={<AuthPage />} />
+          <Route path="/" element={<GalleryPage />} />
+          <Route path="/gallery" element={<GalleryPage />} />
+          <Route path="/u/:username" element={<PublicProfilePage />} />
+        </Route>
 
         {/* 受保护路由 */}
         <Route path="/dashboard" element={<DashboardLayout />}>

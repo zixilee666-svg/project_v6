@@ -13,6 +13,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
+import SiteFooter from './SiteFooter';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: '仪表盘' },
@@ -189,17 +190,18 @@ export default function AppLayout() {
       )}
 
       {/* Main content */}
-      <main className="flex-1 lg:ml-0 mt-14 lg:mt-0">
+      <main className="flex-1 lg:ml-0 mt-14 lg:mt-0 flex flex-col">
         <motion.div
           key={location.pathname}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.2 }}
-          className="p-4 lg:p-8 max-w-7xl mx-auto"
+          className="p-4 lg:p-8 max-w-7xl mx-auto flex-1"
         >
           <Outlet />
         </motion.div>
+        <SiteFooter />
       </main>
     </div>
   );
