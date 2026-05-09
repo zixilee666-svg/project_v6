@@ -13,11 +13,17 @@
  */
 
 // ============================================================
-// KV Storage 操作 (使用全局变量)
+// KV Storage 操作 (使用 context.env)
 // ============================================================
+
+let ACADEMIC_HUB_KV = null;
 
 async function kvGet(key) {
   try {
+    if (!ACADEMIC_HUB_KV) {
+      console.error('[KV] KV not initialized');
+      return null;
+    }
     const value = await ACADEMIC_HUB_KV.get(key);
     return value || null;
   } catch (e) {
@@ -28,6 +34,10 @@ async function kvGet(key) {
 
 async function kvSet(key, value) {
   try {
+    if (!ACADEMIC_HUB_KV) {
+      console.error('[KV] KV not initialized');
+      return false;
+    }
     await ACADEMIC_HUB_KV.put(key, value);
     return true;
   } catch (e) {
@@ -38,6 +48,7 @@ async function kvSet(key, value) {
 
 async function kvDel(key) {
   try {
+    if (!ACADEMIC_HUB_KV) return false;
     await ACADEMIC_HUB_KV.delete(key);
     return true;
   } catch (e) {
@@ -48,6 +59,7 @@ async function kvDel(key) {
 
 async function kvHas(key) {
   try {
+    if (!ACADEMIC_HUB_KV) return false;
     return await ACADEMIC_HUB_KV.get(key) !== null;
   } catch (e) {
     return false;
@@ -1167,6 +1179,9 @@ async function handleGetStats(request, JWT_SECRET) {
 
 export async function onRequest(context) {
   const { request, env } = context;
+
+  // 初始化 KV Storage
+  ACADEMIC_HUB_KV = env.ACADEMIC_HUB_KV;
 
   // 从环境变量获取 JWT_SECRET
   const JWT_SECRET = env.JWT_SECRET || 'academic-hub-v4-jwt-secret-key-2026-prod';
